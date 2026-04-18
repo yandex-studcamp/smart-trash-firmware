@@ -1,4 +1,4 @@
-idf_component_register(SRCS "main.cpp"
+idf_component_register(SRCS "main.cpp" "espdl_model_runner.cpp"
                        INCLUDE_DIRS ".")
 
 target_compile_features(${COMPONENT_LIB} PRIVATE cxx_std_17)
