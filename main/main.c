@@ -50,18 +50,22 @@ static void print_chip_specs(void)
         ESP_LOGW(TAG, "Flash size detect failed: %s", esp_err_to_name(flash_err));
     }
 
-    size_t psram_size = esp_psram_get_size();
-    ESP_LOGI(TAG, "PSRAM size: %u bytes (%.2f MB)",
-             (unsigned)psram_size, psram_size / (1024.0 * 1024.0));
-
     ESP_LOGI(TAG, "Heap free (8-bit): %u bytes",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
     ESP_LOGI(TAG, "Heap largest block (8-bit): %u bytes",
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     ESP_LOGI(TAG, "Internal heap free: %u bytes",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+
+#if CONFIG_SPIRAM
+    size_t psram_size = esp_psram_get_size();
+    ESP_LOGI(TAG, "PSRAM size: %u bytes (%.2f MB)",
+             (unsigned)psram_size, psram_size / (1024.0 * 1024.0));
     ESP_LOGI(TAG, "SPIRAM heap free: %u bytes",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+#else
+    ESP_LOGI(TAG, "PSRAM: disabled in sdkconfig (CONFIG_SPIRAM=n)");
+#endif
 
     ESP_LOGI(TAG, "MAC STA: %02X:%02X:%02X:%02X:%02X:%02X",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
