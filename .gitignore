@@ -4,3 +4,9 @@
 __pycache__/
 build/
 artifacts/
+managed_components/
+
+# Files
+
+sdkconfig
+*.old
