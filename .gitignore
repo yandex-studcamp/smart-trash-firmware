@@ -4,3 +4,6 @@
 __pycache__/
 build/
 artifacts/
+models/
+managed_components/
+sdkconfig*
