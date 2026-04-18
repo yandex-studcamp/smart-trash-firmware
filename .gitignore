@@ -7,6 +7,6 @@ artifacts/
 managed_components/
 
 # Files
-
 sdkconfig
 *.old
+.env
