@@ -1,0 +1,190 @@
+menu "Smart Trash Firmware"
+
+choice SMART_BOOT_PROFILE
+    prompt "Boot Profile"
+    default SMART_BOOT_PROFILE_SERVO_TEST
+
+config SMART_BOOT_PROFILE_SERVO_TEST
+    bool "Servo smoke test (ESP32-CAM + 2x SG90)"
+
+config SMART_BOOT_PROFILE_INFERENCE_SERVICE
+    bool "SoftAP + HTTP inference service"
+
+endchoice
+
+if SMART_BOOT_PROFILE_INFERENCE_SERVICE
+
+config SMART_BOOT_CAPTURE_AND_INFER
+    bool "Capture camera image and run inference on every boot/reset"
+    default y
+
+config SMART_INFERENCE_ENABLE_JPEG_INPUT
+    bool "Enable JPEG input decode path in inference core"
+    default y if SMART_ENABLE_NETWORK_DEBUG_API
+    default n
+
+config SMART_ENABLE_NETWORK_DEBUG_API
+    bool "Enable SoftAP + HTTP debug API"
+    default n
+
+config SMART_FLASH_MODEL_WITH_APP
+    bool "Flash models/model.espdl together with app"
+    default n
+
+if SMART_ENABLE_NETWORK_DEBUG_API
+
+config SMART_SOFTAP_SSID
+    string "SoftAP SSID"
+    default "smart-trash-cam"
+
+config SMART_SOFTAP_PASSWORD
+    string "SoftAP Password"
+    default "smartbin1"
+
+config SMART_SOFTAP_CHANNEL
+    int "SoftAP Channel"
+    range 1 13
+    default 6
+
+config SMART_HTTP_SERVER_PORT
+    int "HTTP Server Port"
+    range 1 65535
+    default 80
+
+config SMART_HTTP_MAX_UPLOAD_BYTES
+    int "Max Upload Size (bytes)"
+    range 1024 1048576
+    default 262144
+
+endif
+
+config SMART_INFERENCE_ENABLE_SELF_TEST
+    bool "Run model self-test/profile at boot"
+    default n
+
+choice SMART_CAMERA_FRAME_SIZE
+    prompt "Camera frame size for boot capture"
+    default SMART_CAMERA_FRAME_SIZE_QVGA
+
+config SMART_CAMERA_FRAME_SIZE_QQVGA
+    bool "QQVGA (160x120)"
+
+config SMART_CAMERA_FRAME_SIZE_QVGA
+    bool "QVGA (320x240)"
+
+config SMART_CAMERA_FRAME_SIZE_VGA
+    bool "VGA (640x480)"
+
+endchoice
+
+config SMART_CAMERA_JPEG_QUALITY
+    int "Camera JPEG quality (lower = better quality)"
+    range 5 30
+    default 12
+
+config SMART_CAMERA_FB_COUNT
+    int "Camera frame buffer count"
+    range 1 2
+    default 1
+
+config SMART_CAMERA_XCLK_HZ
+    int "Camera XCLK frequency (Hz)"
+    range 10000000 24000000
+    default 20000000
+
+config SMART_CAMERA_PIN_PWDN
+    int "Camera PWDN pin"
+    default 32
+
+config SMART_CAMERA_PIN_RESET
+    int "Camera RESET pin (-1 if not connected)"
+    default -1
+
+config SMART_CAMERA_PIN_XCLK
+    int "Camera XCLK pin"
+    default 0
+
+config SMART_CAMERA_PIN_SIOD
+    int "Camera SIOD pin"
+    default 26
+
+config SMART_CAMERA_PIN_SIOC
+    int "Camera SIOC pin"
+    default 27
+
+config SMART_CAMERA_PIN_D7
+    int "Camera D7 (Y9) pin"
+    default 35
+
+config SMART_CAMERA_PIN_D6
+    int "Camera D6 (Y8) pin"
+    default 34
+
+config SMART_CAMERA_PIN_D5
+    int "Camera D5 (Y7) pin"
+    default 39
+
+config SMART_CAMERA_PIN_D4
+    int "Camera D4 (Y6) pin"
+    default 36
+
+config SMART_CAMERA_PIN_D3
+    int "Camera D3 (Y5) pin"
+    default 21
+
+config SMART_CAMERA_PIN_D2
+    int "Camera D2 (Y4) pin"
+    default 19
+
+config SMART_CAMERA_PIN_D1
+    int "Camera D1 (Y3) pin"
+    default 18
+
+config SMART_CAMERA_PIN_D0
+    int "Camera D0 (Y2) pin"
+    default 5
+
+config SMART_CAMERA_PIN_VSYNC
+    int "Camera VSYNC pin"
+    default 25
+
+config SMART_CAMERA_PIN_HREF
+    int "Camera HREF pin"
+    default 23
+
+config SMART_CAMERA_PIN_PCLK
+    int "Camera PCLK pin"
+    default 22
+
+endif
+
+if SMART_BOOT_PROFILE_SERVO_TEST
+
+config SMART_SERVO1_GPIO
+    int "Servo #1 signal GPIO"
+    range 0 33
+    default 13
+
+config SMART_SERVO2_GPIO
+    int "Servo #2 signal GPIO"
+    range 0 33
+    default 14
+
+config SMART_SERVO_MIN_PULSE_US
+    int "Servo minimum pulse width (us)"
+    range 400 1000
+    default 500
+
+config SMART_SERVO_MAX_PULSE_US
+    int "Servo maximum pulse width (us)"
+    range 1800 2800
+    default 2400
+
+config SMART_SERVO_DWELL_MS
+    int "Delay between test positions (ms)"
+    range 200 5000
+    default 900
+
+endif
+
+endmenu
