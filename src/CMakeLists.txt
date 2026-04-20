@@ -1,5 +1,4 @@
 set(APP_SRC_FILES
-    "app/main.cpp"
     "app/app_boot.cpp")
 
 set(APP_REQUIRES

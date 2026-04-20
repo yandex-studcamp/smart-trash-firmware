@@ -8,5 +8,8 @@ logs/
 build_full.log
 models/
 managed_components/
+
+# Files
 sdkconfig
-sdkconfig.old
+*.old
+.env
