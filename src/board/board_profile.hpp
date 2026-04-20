@@ -1,0 +1,29 @@
+#pragma once
+
+#include "sdkconfig.h"
+
+#ifndef CONFIG_SMART_BOOT_PROFILE_SERVO_TEST
+#define CONFIG_SMART_BOOT_PROFILE_SERVO_TEST 0
+#endif
+#ifndef CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE
+#define CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE 0
+#endif
+#ifndef CONFIG_SMART_BOOT_CAPTURE_AND_INFER
+#define CONFIG_SMART_BOOT_CAPTURE_AND_INFER 0
+#endif
+#ifndef CONFIG_SMART_ENABLE_NETWORK_DEBUG_API
+#define CONFIG_SMART_ENABLE_NETWORK_DEBUG_API 0
+#endif
+#ifndef CONFIG_SMART_INFERENCE_ENABLE_JPEG_INPUT
+#define CONFIG_SMART_INFERENCE_ENABLE_JPEG_INPUT 0
+#endif
+
+namespace smart_bin::board {
+
+constexpr bool kBootProfileServoTest = CONFIG_SMART_BOOT_PROFILE_SERVO_TEST;
+constexpr bool kBootProfileInferenceService = CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE;
+constexpr bool kBootCaptureAndInfer = CONFIG_SMART_BOOT_CAPTURE_AND_INFER;
+constexpr bool kNetworkDebugApiEnabled = CONFIG_SMART_ENABLE_NETWORK_DEBUG_API;
+constexpr bool kJpegInferenceInputEnabled = CONFIG_SMART_INFERENCE_ENABLE_JPEG_INPUT;
+
+} // namespace smart_bin::board

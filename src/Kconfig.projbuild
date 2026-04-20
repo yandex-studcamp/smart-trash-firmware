@@ -29,7 +29,26 @@ config SMART_ENABLE_NETWORK_DEBUG_API
 
 config SMART_FLASH_MODEL_WITH_APP
     bool "Flash models/model.espdl together with app"
+    default y
+
+config SMART_SAMPLE_DUMP_ENABLE
+    bool "Dump captured boot samples to serial log for host-side saving"
     default n
+    help
+        Debug-only option. When enabled, boot capture emits the RGB frame as
+        hex-encoded JPEG chunks to the serial log. A host script can save those
+        chunks into logs/samples as numbered artifacts. Keep disabled for
+        normal 4MB flash builds.
+
+config SMART_SAMPLE_DUMP_OUTPUT_SIDE
+    int "Sample dump output side (square, pixels)"
+    range 32 320
+    default 128
+    depends on SMART_SAMPLE_DUMP_ENABLE
+    help
+        Captured frame is center-cropped to square and resized to this side.
+        Full-resolution RGB over UART is slow enough to trigger task watchdog
+        on ESP32-CAM.
 
 if SMART_ENABLE_NETWORK_DEBUG_API
 

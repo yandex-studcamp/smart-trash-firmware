@@ -1,14 +1,19 @@
-#include "smart_camera.hpp"
+#include "camera.hpp"
 
+#include "board/board_config.hpp"
+#include "board/board_pins.hpp"
 #include "esp_camera.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "img_converters.h"
 #include "sdkconfig.h"
 
 namespace {
 
-constexpr char kTag[] = "smart_camera";
+namespace board = smart_bin::board;
+
+constexpr char kTag[] = "camera";
 bool g_camera_ready = false;
 bool g_first_frame_discarded = false;
 
@@ -29,7 +34,7 @@ framesize_t select_frame_size()
 
 namespace smart_bin {
 
-esp_err_t smart_camera_init()
+esp_err_t camera_init()
 {
     if (g_camera_ready) {
         return ESP_OK;
@@ -38,23 +43,23 @@ esp_err_t smart_camera_init()
     camera_config_t config = {};
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;
-    config.pin_d0 = CONFIG_SMART_CAMERA_PIN_D0;
-    config.pin_d1 = CONFIG_SMART_CAMERA_PIN_D1;
-    config.pin_d2 = CONFIG_SMART_CAMERA_PIN_D2;
-    config.pin_d3 = CONFIG_SMART_CAMERA_PIN_D3;
-    config.pin_d4 = CONFIG_SMART_CAMERA_PIN_D4;
-    config.pin_d5 = CONFIG_SMART_CAMERA_PIN_D5;
-    config.pin_d6 = CONFIG_SMART_CAMERA_PIN_D6;
-    config.pin_d7 = CONFIG_SMART_CAMERA_PIN_D7;
-    config.pin_xclk = CONFIG_SMART_CAMERA_PIN_XCLK;
-    config.pin_pclk = CONFIG_SMART_CAMERA_PIN_PCLK;
-    config.pin_vsync = CONFIG_SMART_CAMERA_PIN_VSYNC;
-    config.pin_href = CONFIG_SMART_CAMERA_PIN_HREF;
-    config.pin_sccb_sda = CONFIG_SMART_CAMERA_PIN_SIOD;
-    config.pin_sccb_scl = CONFIG_SMART_CAMERA_PIN_SIOC;
-    config.pin_pwdn = CONFIG_SMART_CAMERA_PIN_PWDN;
-    config.pin_reset = CONFIG_SMART_CAMERA_PIN_RESET;
-    config.xclk_freq_hz = CONFIG_SMART_CAMERA_XCLK_HZ;
+    config.pin_d0 = board::kCameraPinD0;
+    config.pin_d1 = board::kCameraPinD1;
+    config.pin_d2 = board::kCameraPinD2;
+    config.pin_d3 = board::kCameraPinD3;
+    config.pin_d4 = board::kCameraPinD4;
+    config.pin_d5 = board::kCameraPinD5;
+    config.pin_d6 = board::kCameraPinD6;
+    config.pin_d7 = board::kCameraPinD7;
+    config.pin_xclk = board::kCameraPinXclk;
+    config.pin_pclk = board::kCameraPinPclk;
+    config.pin_vsync = board::kCameraPinVsync;
+    config.pin_href = board::kCameraPinHref;
+    config.pin_sccb_sda = board::kCameraPinSiod;
+    config.pin_sccb_scl = board::kCameraPinSioc;
+    config.pin_pwdn = board::kCameraPinPwdn;
+    config.pin_reset = board::kCameraPinReset;
+    config.xclk_freq_hz = board::kCameraXclkHz;
     config.frame_size = select_frame_size();
 #if CONFIG_SMART_INFERENCE_ENABLE_JPEG_INPUT
     config.pixel_format = PIXFORMAT_JPEG;
@@ -63,8 +68,8 @@ esp_err_t smart_camera_init()
 #endif
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     config.fb_location = CAMERA_FB_IN_PSRAM;
-    config.jpeg_quality = CONFIG_SMART_CAMERA_JPEG_QUALITY;
-    config.fb_count = CONFIG_SMART_CAMERA_FB_COUNT;
+    config.jpeg_quality = board::kCameraJpegQuality;
+    config.fb_count = board::kCameraFbCount;
 
     ESP_LOGI(kTag,
              "Init camera pins: xclk=%d pclk=%d vsync=%d href=%d pwdn=%d reset=%d",
@@ -87,7 +92,7 @@ esp_err_t smart_camera_init()
     return ESP_OK;
 }
 
-esp_err_t smart_camera_capture_jpeg(const uint8_t **jpeg_data, size_t *jpeg_len, camera_fb_t **out_fb, float *capture_ms)
+esp_err_t camera_capture_jpeg(const uint8_t **jpeg_data, size_t *jpeg_len, camera_fb_t **out_fb, float *capture_ms)
 {
     if (!g_camera_ready || jpeg_data == nullptr || jpeg_len == nullptr || out_fb == nullptr || capture_ms == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -122,7 +127,7 @@ esp_err_t smart_camera_capture_jpeg(const uint8_t **jpeg_data, size_t *jpeg_len,
     return ESP_OK;
 }
 
-esp_err_t smart_camera_capture_rgb888(uint8_t **rgb_data, uint16_t *width, uint16_t *height, float *capture_ms)
+esp_err_t camera_capture_rgb888(uint8_t **rgb_data, uint16_t *width, uint16_t *height, float *capture_ms)
 {
     if (!g_camera_ready || rgb_data == nullptr || width == nullptr || height == nullptr || capture_ms == nullptr) {
         return ESP_ERR_INVALID_ARG;
@@ -162,15 +167,16 @@ esp_err_t smart_camera_capture_rgb888(uint8_t **rgb_data, uint16_t *width, uint1
         return ESP_ERR_NO_MEM;
     }
 
-    for (size_t i = 0; i < pixel_count; ++i) {
-        const uint16_t px = (static_cast<uint16_t>(fb->buf[2 * i]) << 8) | fb->buf[2 * i + 1];
-        const uint8_t r5 = static_cast<uint8_t>((px >> 11) & 0x1F);
-        const uint8_t g6 = static_cast<uint8_t>((px >> 5) & 0x3F);
-        const uint8_t b5 = static_cast<uint8_t>(px & 0x1F);
-
-        dst[3 * i + 0] = static_cast<uint8_t>((r5 * 255 + 15) / 31);
-        dst[3 * i + 1] = static_cast<uint8_t>((g6 * 255 + 31) / 63);
-        dst[3 * i + 2] = static_cast<uint8_t>((b5 * 255 + 15) / 31);
+    if (!fmt2rgb888(fb->buf, fb->len, fb->format, dst)) {
+        ESP_LOGE(kTag,
+                 "fmt2rgb888 failed: format=%d len=%u width=%u height=%u",
+                 static_cast<int>(fb->format),
+                 static_cast<unsigned>(fb->len),
+                 static_cast<unsigned>(fb->width),
+                 static_cast<unsigned>(fb->height));
+        heap_caps_free(dst);
+        esp_camera_fb_return(fb);
+        return ESP_ERR_INVALID_RESPONSE;
     }
 
     *rgb_data = dst;
@@ -180,21 +186,21 @@ esp_err_t smart_camera_capture_rgb888(uint8_t **rgb_data, uint16_t *width, uint1
     return ESP_OK;
 }
 
-void smart_camera_release(camera_fb_t *fb)
+void camera_release(camera_fb_t *fb)
 {
     if (fb != nullptr) {
         esp_camera_fb_return(fb);
     }
 }
 
-void smart_camera_free_rgb888(uint8_t *rgb_data)
+void camera_free_rgb888(uint8_t *rgb_data)
 {
     if (rgb_data != nullptr) {
         heap_caps_free(rgb_data);
     }
 }
 
-void smart_camera_deinit()
+void camera_deinit()
 {
     if (!g_camera_ready) {
         return;

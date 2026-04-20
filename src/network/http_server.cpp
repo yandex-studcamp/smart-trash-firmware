@@ -1,4 +1,4 @@
-#include "smart_http_server.hpp"
+#include "http_server.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -9,12 +9,12 @@
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
-#include "inference/smart_inference.h"
+#include "inference/inference.h"
 #include "sdkconfig.h"
 
 namespace {
 
-constexpr char kTag[] = "smart_http";
+constexpr char kTag[] = "http";
 httpd_handle_t g_http_server = nullptr;
 
 bool header_is_supported_content_type(httpd_req_t *req)
@@ -37,7 +37,7 @@ bool header_is_supported_content_type(httpd_req_t *req)
 esp_err_t health_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/plain");
-    if (smart_inference_is_ready()) {
+    if (inference_is_ready()) {
         httpd_resp_set_status(req, "200 OK");
         return httpd_resp_sendstr(req, "ok");
     }
@@ -49,7 +49,7 @@ esp_err_t infer_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/plain");
 
-    if (!smart_inference_is_ready()) {
+    if (!inference_is_ready()) {
         httpd_resp_set_status(req, "503 Service Unavailable");
         return httpd_resp_sendstr(req, "not_ready");
     }
@@ -92,8 +92,8 @@ esp_err_t infer_handler(httpd_req_t *req)
         received_total += ret;
     }
 
-    smart_inference_result_t result = {};
-    const esp_err_t infer_ret = smart_inference_run_jpeg(buffer, static_cast<size_t>(received_total), &result);
+    inference_result_t result = {};
+    const esp_err_t infer_ret = inference_run_jpeg(buffer, static_cast<size_t>(received_total), &result);
     heap_caps_free(buffer);
 
     if (infer_ret == ESP_ERR_INVALID_STATE) {

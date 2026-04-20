@@ -1,4 +1,4 @@
-#include "smart_softap.hpp"
+#include "softap.hpp"
 
 #include <cstring>
 
@@ -11,7 +11,7 @@
 
 namespace {
 
-constexpr char kTag[] = "smart_softap";
+constexpr char kTag[] = "softap";
 esp_netif_t *g_ap_netif = nullptr;
 bool g_wifi_started = false;
 

@@ -3,6 +3,8 @@
 #include <array>
 #include <cstdint>
 
+#include "board/board_config.hpp"
+#include "board/board_pins.hpp"
 #include "driver/ledc.h"
 #include "esp_check.h"
 #include "esp_log.h"
@@ -11,6 +13,8 @@
 #include "sdkconfig.h"
 
 namespace {
+
+namespace board = smart_bin::board;
 
 constexpr char kTag[] = "servo_test";
 constexpr ledc_mode_t kSpeedMode = LEDC_LOW_SPEED_MODE;
@@ -23,9 +27,9 @@ constexpr ledc_channel_t kServo2Channel = LEDC_CHANNEL_1;
 
 uint32_t angle_to_pulse_us(uint16_t angle_deg)
 {
-    const uint16_t clamped = angle_deg > 180 ? 180 : angle_deg;
-    const uint32_t range = CONFIG_SMART_SERVO_MAX_PULSE_US - CONFIG_SMART_SERVO_MIN_PULSE_US;
-    return CONFIG_SMART_SERVO_MIN_PULSE_US + (range * clamped) / 180;
+    const uint16_t clamped = angle_deg > board::kServoMaxAngleDeg ? board::kServoMaxAngleDeg : angle_deg;
+    const uint32_t range = board::kServoMaxPulseUs - board::kServoMinPulseUs;
+    return board::kServoMinPulseUs + (range * clamped) / board::kServoMaxAngleDeg;
 }
 
 uint32_t pulse_to_duty(uint32_t pulse_us)
@@ -55,7 +59,7 @@ esp_err_t init_ledc()
     ESP_RETURN_ON_ERROR(ledc_timer_config(&timer_cfg), kTag, "ledc_timer_config failed");
 
     ledc_channel_config_t ch1_cfg = {};
-    ch1_cfg.gpio_num = CONFIG_SMART_SERVO1_GPIO;
+    ch1_cfg.gpio_num = board::kServo1Gpio;
     ch1_cfg.speed_mode = kSpeedMode;
     ch1_cfg.channel = kServo1Channel;
     ch1_cfg.intr_type = LEDC_INTR_DISABLE;
@@ -65,7 +69,7 @@ esp_err_t init_ledc()
     ESP_RETURN_ON_ERROR(ledc_channel_config(&ch1_cfg), kTag, "servo1 ledc_channel_config failed");
 
     ledc_channel_config_t ch2_cfg = {};
-    ch2_cfg.gpio_num = CONFIG_SMART_SERVO2_GPIO;
+    ch2_cfg.gpio_num = board::kServo2Gpio;
     ch2_cfg.speed_mode = kSpeedMode;
     ch2_cfg.channel = kServo2Channel;
     ch2_cfg.intr_type = LEDC_INTR_DISABLE;
@@ -90,14 +94,15 @@ void run_servo_smoke_test()
 
     ESP_LOGI(kTag,
              "Servo smoke test started: GPIO%d (servo1), GPIO%d (servo2)",
-             CONFIG_SMART_SERVO1_GPIO,
-             CONFIG_SMART_SERVO2_GPIO);
+             board::kServo1Gpio,
+             board::kServo2Gpio);
     ESP_LOGI(kTag, "Power servos from stable +5V, keep common GND with ESP32-CAM");
 
-    const std::array<uint16_t, 4> pattern = {0, 90, 180, 90};
+    const std::array<uint16_t, 4> pattern = {
+        board::kServoMinAngleDeg, board::kServoHomeAngleDeg, board::kServoMaxAngleDeg, board::kServoHomeAngleDeg};
     while (true) {
         for (const uint16_t servo1_angle : pattern) {
-            const uint16_t servo2_angle = static_cast<uint16_t>(180 - servo1_angle);
+            const uint16_t servo2_angle = static_cast<uint16_t>(board::kServoMaxAngleDeg - servo1_angle);
 
             if (set_servo_angle(kServo1Channel, servo1_angle) != ESP_OK ||
                 set_servo_angle(kServo2Channel, servo2_angle) != ESP_OK) {
@@ -108,10 +113,10 @@ void run_servo_smoke_test()
             ESP_LOGI(kTag,
                      "servo1=%u deg (GPIO%d), servo2=%u deg (GPIO%d)",
                      servo1_angle,
-                     CONFIG_SMART_SERVO1_GPIO,
+                     board::kServo1Gpio,
                      servo2_angle,
-                     CONFIG_SMART_SERVO2_GPIO);
-            vTaskDelay(pdMS_TO_TICKS(CONFIG_SMART_SERVO_DWELL_MS));
+                     board::kServo2Gpio);
+            vTaskDelay(pdMS_TO_TICKS(board::kServoDwellMs));
         }
     }
 }

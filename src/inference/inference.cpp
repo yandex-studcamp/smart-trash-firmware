@@ -1,4 +1,4 @@
-#include "smart_inference.h"
+#include "inference.h"
 
 #include <array>
 #include <algorithm>
@@ -13,6 +13,7 @@
 #include "dl_model_base.hpp"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_partition.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -20,9 +21,9 @@
 
 namespace {
 
-constexpr char kTag[] = "smart_inference";
+constexpr char kTag[] = "inference";
 constexpr int kClassCount = 3;
-constexpr std::array<const char *, kClassCount> kClassLabels = {"paper", "plastic", "other"};
+constexpr std::array<const char *, kClassCount> kClassLabels = {"other", "paper", "plastic"};
 
 struct InferenceState {
     dl::Model *model = nullptr;
@@ -118,6 +119,27 @@ void log_model_io_summary(dl::Model *model)
 
     log_tensor_map("input", model->get_inputs());
     log_tensor_map("output", model->get_outputs());
+}
+
+void log_partition_prefix(const esp_partition_t *partition)
+{
+    if (partition == nullptr) {
+        return;
+    }
+
+    uint8_t bytes[16] = {};
+    const esp_err_t read_ret = esp_partition_read(partition, 0, bytes, sizeof(bytes));
+    if (read_ret != ESP_OK) {
+        ESP_LOGE(kTag, "Failed to read model partition prefix: 0x%x", read_ret);
+        return;
+    }
+
+    char hex[(sizeof(bytes) * 3) + 1] = {};
+    size_t pos = 0;
+    for (size_t i = 0; i < sizeof(bytes); ++i) {
+        pos += std::snprintf(hex + pos, sizeof(hex) - pos, "%s%02x", i == 0 ? "" : " ", bytes[i]);
+    }
+    ESP_LOGE(kTag, "Model partition first %u bytes: %s", static_cast<unsigned>(sizeof(bytes)), hex);
 }
 
 bool is_class_output_candidate(const dl::TensorBase *tensor)
@@ -292,7 +314,7 @@ esp_err_t run_rgb_locked(const uint8_t *rgb_data,
                          uint16_t width,
                          uint16_t height,
                          float decode_ms,
-                         smart_inference_result_t *out)
+                         inference_result_t *out)
 {
     if (!g_state.ready) {
         return ESP_ERR_INVALID_STATE;
@@ -357,7 +379,7 @@ esp_err_t run_rgb_locked(const uint8_t *rgb_data,
 
 } // namespace
 
-extern "C" esp_err_t smart_inference_init(void)
+extern "C" esp_err_t inference_init(void)
 {
     if (g_state.mutex == nullptr) {
         g_state.mutex = xSemaphoreCreateMutex();
@@ -373,6 +395,19 @@ extern "C" esp_err_t smart_inference_init(void)
     clear_state(true);
     g_state.initialized = true;
 
+    const esp_partition_t *model_partition =
+        esp_partition_find_first(ESP_PARTITION_TYPE_DATA, static_cast<esp_partition_subtype_t>(0x82), "model");
+    if (model_partition == nullptr) {
+        ESP_LOGE(kTag, "Partition 'model' was not found in partition table");
+        return ESP_ERR_NOT_FOUND;
+    }
+    ESP_LOGI(kTag,
+             "Model partition found: address=0x%08x size=0x%x (%u bytes)",
+             model_partition->address,
+             model_partition->size,
+             static_cast<unsigned>(model_partition->size));
+    log_partition_prefix(model_partition);
+
     ESP_LOGI(kTag, "Loading ESP-DL model from partition 'model'...");
     g_state.model = new (std::nothrow)
         dl::Model("model", fbs::MODEL_LOCATION_IN_FLASH_PARTITION, 0, dl::MEMORY_MANAGER_GREEDY, nullptr, false);
@@ -383,7 +418,16 @@ extern "C" esp_err_t smart_inference_init(void)
 
     if (g_state.model->get_fbs_model() == nullptr) {
         ESP_LOGE(kTag, "Model is not loaded. Check partition size/content for 'model'");
-        clear_state(true);
+        log_partition_prefix(model_partition);
+        // Avoid deleting partially initialized dl::Model here. In this failure path
+        // some esp-dl versions can crash during cleanup and trigger reboot loops.
+        g_state.model = nullptr;
+        g_state.preprocessor = nullptr;
+        g_state.output_tensor = nullptr;
+        g_state.output_name.clear();
+        g_state.input_width = 0;
+        g_state.input_height = 0;
+        g_state.ready = false;
         return ESP_ERR_INVALID_RESPONSE;
     }
 
@@ -449,15 +493,15 @@ extern "C" esp_err_t smart_inference_init(void)
     return ESP_OK;
 }
 
-extern "C" bool smart_inference_is_ready(void)
+extern "C" bool inference_is_ready(void)
 {
     return g_state.initialized && g_state.ready;
 }
 
-extern "C" esp_err_t smart_inference_run_rgb888(const uint8_t *rgb,
-                                                uint16_t width,
-                                                uint16_t height,
-                                                smart_inference_result_t *out)
+extern "C" esp_err_t inference_run_rgb888(const uint8_t *rgb,
+                                          uint16_t width,
+                                          uint16_t height,
+                                          inference_result_t *out)
 {
     if (rgb == nullptr || out == nullptr || width == 0 || height == 0) {
         return ESP_ERR_INVALID_ARG;
@@ -475,7 +519,7 @@ extern "C" esp_err_t smart_inference_run_rgb888(const uint8_t *rgb,
     return ret;
 }
 
-extern "C" esp_err_t smart_inference_run_jpeg(const uint8_t *data, size_t len, smart_inference_result_t *out)
+extern "C" esp_err_t inference_run_jpeg(const uint8_t *data, size_t len, inference_result_t *out)
 {
 #if !CONFIG_SMART_INFERENCE_ENABLE_JPEG_INPUT
     (void)data;
