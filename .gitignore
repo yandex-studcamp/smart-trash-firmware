@@ -4,6 +4,9 @@
 __pycache__/
 build/
 artifacts/
+logs/
+build_full.log
+models/
 managed_components/
 
 # Files
