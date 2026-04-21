@@ -17,6 +17,12 @@
 #ifndef CONFIG_SMART_INFERENCE_ENABLE_JPEG_INPUT
 #define CONFIG_SMART_INFERENCE_ENABLE_JPEG_INPUT 0
 #endif
+#ifndef CONFIG_SMART_INFERENCE_SERVO_ACTIONS
+#define CONFIG_SMART_INFERENCE_SERVO_ACTIONS 0
+#endif
+#ifndef CONFIG_SMART_HTTP_SERVO_DEBUG_ENABLE
+#define CONFIG_SMART_HTTP_SERVO_DEBUG_ENABLE 0
+#endif
 
 namespace smart_bin::board {
 
@@ -25,5 +31,7 @@ constexpr bool kBootProfileInferenceService = CONFIG_SMART_BOOT_PROFILE_INFERENC
 constexpr bool kBootCaptureAndInfer = CONFIG_SMART_BOOT_CAPTURE_AND_INFER;
 constexpr bool kNetworkDebugApiEnabled = CONFIG_SMART_ENABLE_NETWORK_DEBUG_API;
 constexpr bool kJpegInferenceInputEnabled = CONFIG_SMART_INFERENCE_ENABLE_JPEG_INPUT;
+constexpr bool kInferenceServoActionsEnabled = CONFIG_SMART_INFERENCE_SERVO_ACTIONS;
+constexpr bool kHttpServoDebugEnabled = CONFIG_SMART_HTTP_SERVO_DEBUG_ENABLE;
 
 } // namespace smart_bin::board
