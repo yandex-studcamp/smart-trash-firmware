@@ -3,6 +3,7 @@ set(APP_SRC_FILES
 
 set(APP_REQUIRES
     esp_timer
+    esp_driver_gpio
     esp_event
     esp_http_server
     esp_netif

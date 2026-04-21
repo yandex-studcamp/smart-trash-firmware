@@ -19,10 +19,10 @@ namespace board = smart_bin::board;
 
 constexpr char kTag[] = "servo";
 constexpr ledc_mode_t kSpeedMode = LEDC_LOW_SPEED_MODE;
-constexpr ledc_timer_t kTimer = LEDC_TIMER_0;
+constexpr ledc_timer_t kTimer = LEDC_TIMER_1;
 constexpr ledc_timer_bit_t kDutyResolution = LEDC_TIMER_16_BIT;
-constexpr ledc_channel_t kServo1Channel = LEDC_CHANNEL_0;
-constexpr ledc_channel_t kServo2Channel = LEDC_CHANNEL_1;
+constexpr ledc_channel_t kServo1Channel = LEDC_CHANNEL_2;
+constexpr ledc_channel_t kServo2Channel = LEDC_CHANNEL_3;
 
 bool g_ready = false;
 

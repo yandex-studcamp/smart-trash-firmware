@@ -9,6 +9,7 @@
 #include "sdkconfig.h"
 
 #if CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE
+#include "driver/gpio.h"
 #include "board/board_config.hpp"
 #include "board/servo_control.hpp"
 #include "camera/camera.hpp"
@@ -253,10 +254,40 @@ void run_boot_camera_inference()
 #endif
 }
 
+#if CONFIG_SMART_INFERENCE_TRIGGER_MODE_BUTTON
+
+esp_err_t init_inference_button_gpio()
+{
+    const uint64_t pin_mask = (1ULL << CONFIG_SMART_INFERENCE_BUTTON_GPIO);
+    gpio_config_t io_cfg = {};
+    io_cfg.pin_bit_mask = pin_mask;
+    io_cfg.mode = GPIO_MODE_INPUT;
+    io_cfg.intr_type = GPIO_INTR_DISABLE;
+#if CONFIG_SMART_INFERENCE_BUTTON_ACTIVE_LOW
+    io_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
+    io_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+#else
+    io_cfg.pull_up_en = GPIO_PULLUP_DISABLE;
+    io_cfg.pull_down_en = GPIO_PULLDOWN_ENABLE;
+#endif
+
+    return gpio_config(&io_cfg);
+}
+
+bool is_inference_button_pressed()
+{
+    const int level = gpio_get_level(static_cast<gpio_num_t>(CONFIG_SMART_INFERENCE_BUTTON_GPIO));
+#if CONFIG_SMART_INFERENCE_BUTTON_ACTIVE_LOW
+    return level == 0;
+#else
+    return level != 0;
+#endif
+}
+
+#endif
+
 void run_inference_boot_flow()
 {
-    run_boot_camera_inference();
-
 #if CONFIG_SMART_ENABLE_HTTP_DEBUG_API
     esp_netif_t *ap_netif = nullptr;
     const esp_err_t ap_ret = smart_bin::start_softap(&ap_netif);
@@ -281,6 +312,57 @@ void run_inference_boot_flow()
     }
 #else
     ESP_LOGI(kTag, "Network debug API is disabled. SoftAP/HTTP not started.");
+#endif
+
+#if !CONFIG_SMART_BOOT_CAPTURE_AND_INFER
+    ESP_LOGW(kTag, "SMART_BOOT_CAPTURE_AND_INFER is disabled; trigger events will not run camera inference.");
+#endif
+
+#if CONFIG_SMART_INFERENCE_TRIGGER_MODE_BUTTON
+    const esp_err_t button_ret = init_inference_button_gpio();
+    if (button_ret != ESP_OK) {
+        ESP_LOGE(kTag, "Inference button GPIO init failed: 0x%x", button_ret);
+        return;
+    }
+
+    ESP_LOGI(kTag,
+             "Inference trigger mode: button GPIO%d (%s), debounce=%u ms",
+             CONFIG_SMART_INFERENCE_BUTTON_GPIO,
+#if CONFIG_SMART_INFERENCE_BUTTON_ACTIVE_LOW
+             "active-low",
+#else
+             "active-high",
+#endif
+             static_cast<unsigned>(CONFIG_SMART_INFERENCE_BUTTON_DEBOUNCE_MS));
+
+    bool prev_pressed = is_inference_button_pressed();
+    TickType_t last_trigger_tick = 0;
+    const TickType_t debounce_ticks = pdMS_TO_TICKS(CONFIG_SMART_INFERENCE_BUTTON_DEBOUNCE_MS);
+
+    while (true) {
+        const bool pressed = is_inference_button_pressed();
+        if (pressed && !prev_pressed) {
+            const TickType_t now = xTaskGetTickCount();
+            if ((now - last_trigger_tick) >= debounce_ticks) {
+                last_trigger_tick = now;
+                ESP_LOGI(kTag, "Button trigger accepted -> running inference cycle");
+                run_boot_camera_inference();
+            }
+        }
+
+        prev_pressed = pressed;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+#else
+    const uint32_t period_ms = static_cast<uint32_t>(CONFIG_SMART_INFERENCE_PERIOD_SEC) * 1000U;
+    ESP_LOGI(kTag,
+             "Inference trigger mode: periodic, interval=%u sec",
+             static_cast<unsigned>(CONFIG_SMART_INFERENCE_PERIOD_SEC));
+
+    while (true) {
+        run_boot_camera_inference();
+        vTaskDelay(pdMS_TO_TICKS(period_ms));
+    }
 #endif
 }
 #endif

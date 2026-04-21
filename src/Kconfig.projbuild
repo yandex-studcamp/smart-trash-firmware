@@ -110,6 +110,44 @@ config SMART_INFERENCE_SERVO_ACTIONS
     bool "Run servo action after inference result"
     default y
 
+choice SMART_INFERENCE_TRIGGER_MODE
+    prompt "Inference trigger mode"
+    default SMART_INFERENCE_TRIGGER_MODE_PERIODIC
+
+config SMART_INFERENCE_TRIGGER_MODE_BUTTON
+    bool "Run inference on button press"
+
+config SMART_INFERENCE_TRIGGER_MODE_PERIODIC
+    bool "Run inference periodically"
+
+endchoice
+
+config SMART_INFERENCE_PERIOD_SEC
+    int "Periodic inference interval (seconds)"
+    range 1 3600
+    default 5
+    depends on SMART_INFERENCE_TRIGGER_MODE_PERIODIC
+
+config SMART_INFERENCE_BUTTON_GPIO
+    int "Button GPIO for manual inference trigger"
+    range 0 39
+    default 0
+    depends on SMART_INFERENCE_TRIGGER_MODE_BUTTON
+    help
+        Default is GPIO0 (BOOT button on many ESP32 boards). Keep button
+        released during reset/boot to avoid entering download mode.
+
+config SMART_INFERENCE_BUTTON_ACTIVE_LOW
+    bool "Button is active low (pressed = 0)"
+    default y
+    depends on SMART_INFERENCE_TRIGGER_MODE_BUTTON
+
+config SMART_INFERENCE_BUTTON_DEBOUNCE_MS
+    int "Button debounce time (ms)"
+    range 10 1000
+    default 60
+    depends on SMART_INFERENCE_TRIGGER_MODE_BUTTON
+
 config SMART_FLASH_MODEL_WITH_APP
     bool "Flash models/model.espdl together with app"
     default y
