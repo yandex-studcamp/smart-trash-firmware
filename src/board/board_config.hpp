@@ -13,27 +13,65 @@
 #ifndef CONFIG_SMART_CAMERA_FB_COUNT
 #define CONFIG_SMART_CAMERA_FB_COUNT 1
 #endif
+#ifndef CONFIG_SMART_SERVO_SAFE_ANGLE_DEG
+#define CONFIG_SMART_SERVO_SAFE_ANGLE_DEG 90
+#endif
+#ifndef CONFIG_SMART_SERVO1_HOME_ANGLE_DEG
+#define CONFIG_SMART_SERVO1_HOME_ANGLE_DEG 90
+#endif
+#ifndef CONFIG_SMART_SERVO2_HOME_ANGLE_DEG
+#define CONFIG_SMART_SERVO2_HOME_ANGLE_DEG 90
+#endif
+#ifndef CONFIG_SMART_SERVO1_TEST_ANGLE_DEG
+#define CONFIG_SMART_SERVO1_TEST_ANGLE_DEG 35
+#endif
+#ifndef CONFIG_SMART_SERVO2_TEST_ANGLE_DEG
+#define CONFIG_SMART_SERVO2_TEST_ANGLE_DEG 145
+#endif
+#ifndef CONFIG_SMART_SERVO1_CLASS1_ANGLE_DEG
+#define CONFIG_SMART_SERVO1_CLASS1_ANGLE_DEG 150
+#endif
+#ifndef CONFIG_SMART_SERVO1_CLASS2_ANGLE_DEG
+#define CONFIG_SMART_SERVO1_CLASS2_ANGLE_DEG 30
+#endif
+#ifndef CONFIG_SMART_SERVO2_ANY_CLASS_ANGLE_DEG
+#define CONFIG_SMART_SERVO2_ANY_CLASS_ANGLE_DEG 120
+#endif
+#ifndef CONFIG_SMART_SERVO_STARTUP_SETTLE_MS
+#define CONFIG_SMART_SERVO_STARTUP_SETTLE_MS 450
+#endif
+#ifndef CONFIG_SMART_SERVO_STEP_DELAY_MS
+#define CONFIG_SMART_SERVO_STEP_DELAY_MS 900
+#endif
+#ifndef CONFIG_SMART_SERVO_SECONDARY_DELAY_MS
+#define CONFIG_SMART_SERVO_SECONDARY_DELAY_MS 300
+#endif
+#ifndef CONFIG_SMART_SERVO_ACTION_HOLD_MS
+#define CONFIG_SMART_SERVO_ACTION_HOLD_MS 700
+#endif
+#ifndef CONFIG_SMART_SERVO_ACTION_RETURN_DELAY_MS
+#define CONFIG_SMART_SERVO_ACTION_RETURN_DELAY_MS 350
+#endif
 
 namespace smart_bin::board {
 
-constexpr uint16_t kServoSafeAngleDeg = 90;
-constexpr uint16_t kServo1HomeAngleDeg = 90;
-constexpr uint16_t kServo2HomeAngleDeg = 90;
-constexpr uint16_t kServo1TestAngleDeg = 35;
-constexpr uint16_t kServo2TestAngleDeg = 145;
-constexpr uint16_t kServo1Class1AngleDeg = 150;
-constexpr uint16_t kServo1Class2AngleDeg = 30;
-constexpr uint16_t kServo2AnyClassOffsetDeg = 30;
-constexpr uint16_t kServo2AnyClassAngleDeg = kServo2HomeAngleDeg + kServo2AnyClassOffsetDeg;
+constexpr uint16_t kServoSafeAngleDeg = CONFIG_SMART_SERVO_SAFE_ANGLE_DEG;
+constexpr uint16_t kServo1HomeAngleDeg = CONFIG_SMART_SERVO1_HOME_ANGLE_DEG;
+constexpr uint16_t kServo2HomeAngleDeg = CONFIG_SMART_SERVO2_HOME_ANGLE_DEG;
+constexpr uint16_t kServo1TestAngleDeg = CONFIG_SMART_SERVO1_TEST_ANGLE_DEG;
+constexpr uint16_t kServo2TestAngleDeg = CONFIG_SMART_SERVO2_TEST_ANGLE_DEG;
+constexpr uint16_t kServo1Class1AngleDeg = CONFIG_SMART_SERVO1_CLASS1_ANGLE_DEG;
+constexpr uint16_t kServo1Class2AngleDeg = CONFIG_SMART_SERVO1_CLASS2_ANGLE_DEG;
+constexpr uint16_t kServo2AnyClassAngleDeg = CONFIG_SMART_SERVO2_ANY_CLASS_ANGLE_DEG;
 constexpr uint16_t kServoMinAngleDeg = 0;
 constexpr uint16_t kServoMaxAngleDeg = 180;
 constexpr uint32_t kServoMinPulseUs = 500;
 constexpr uint32_t kServoMaxPulseUs = 2400;
-constexpr uint32_t kServoStartupSettleMs = 450;
-constexpr uint32_t kServoStepDelayMs = 900;
-constexpr uint32_t kServoSecondaryDelayMs = 300;
-constexpr uint32_t kServoActionHoldMs = 700;
-constexpr uint32_t kServoActionReturnDelayMs = 350;
+constexpr uint32_t kServoStartupSettleMs = CONFIG_SMART_SERVO_STARTUP_SETTLE_MS;
+constexpr uint32_t kServoStepDelayMs = CONFIG_SMART_SERVO_STEP_DELAY_MS;
+constexpr uint32_t kServoSecondaryDelayMs = CONFIG_SMART_SERVO_SECONDARY_DELAY_MS;
+constexpr uint32_t kServoActionHoldMs = CONFIG_SMART_SERVO_ACTION_HOLD_MS;
+constexpr uint32_t kServoActionReturnDelayMs = CONFIG_SMART_SERVO_ACTION_RETURN_DELAY_MS;
 constexpr uint32_t kServoPwmFrequencyHz = 50;
 constexpr uint32_t kServoPwmPeriodUs = 20000;
 

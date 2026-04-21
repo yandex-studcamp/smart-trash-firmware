@@ -12,6 +12,75 @@ config SMART_BOOT_PROFILE_INFERENCE_SERVICE
 
 endchoice
 
+menu "Servo settings"
+
+config SMART_SERVO_SAFE_ANGLE_DEG
+    int "Safe angle for both servos (deg)"
+    range 0 180
+    default 90
+
+config SMART_SERVO1_HOME_ANGLE_DEG
+    int "Servo #1 home angle (deg)"
+    range 0 180
+    default 90
+
+config SMART_SERVO2_HOME_ANGLE_DEG
+    int "Servo #2 home angle (deg)"
+    range 0 180
+    default 90
+
+config SMART_SERVO1_TEST_ANGLE_DEG
+    int "Servo #1 smoke-test angle (deg)"
+    range 0 180
+    default 35
+
+config SMART_SERVO2_TEST_ANGLE_DEG
+    int "Servo #2 smoke-test angle (deg)"
+    range 0 180
+    default 145
+
+config SMART_SERVO1_CLASS1_ANGLE_DEG
+    int "Servo #1 class 1 action angle (deg)"
+    range 0 180
+    default 150
+
+config SMART_SERVO1_CLASS2_ANGLE_DEG
+    int "Servo #1 class 2 action angle (deg)"
+    range 0 180
+    default 30
+
+config SMART_SERVO2_ANY_CLASS_ANGLE_DEG
+    int "Servo #2 action angle for any class (deg)"
+    range 0 180
+    default 120
+
+config SMART_SERVO_STARTUP_SETTLE_MS
+    int "Delay after initial safe angles (ms)"
+    range 0 5000
+    default 450
+
+config SMART_SERVO_STEP_DELAY_MS
+    int "Delay between smoke-test movements (ms)"
+    range 100 10000
+    default 900
+
+config SMART_SERVO_SECONDARY_DELAY_MS
+    int "Delay before servo #2 action after prediction (ms)"
+    range 0 5000
+    default 300
+
+config SMART_SERVO_ACTION_HOLD_MS
+    int "Servo action hold time before returning home (ms)"
+    range 0 10000
+    default 700
+
+config SMART_SERVO_ACTION_RETURN_DELAY_MS
+    int "Delay between return-home servo commands (ms)"
+    range 0 5000
+    default 350
+
+endmenu
+
 if SMART_BOOT_PROFILE_INFERENCE_SERVICE
 
 config SMART_BOOT_CAPTURE_AND_INFER

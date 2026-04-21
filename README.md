@@ -59,11 +59,23 @@ src/
 
 Servo bring-up:
 - `SMART_SERVO_TEST_CYCLES` (`0` = бесконечный цикл)
+- `SMART_SERVO_SAFE_ANGLE_DEG`
+- `SMART_SERVO1_HOME_ANGLE_DEG`
+- `SMART_SERVO2_HOME_ANGLE_DEG`
+- `SMART_SERVO1_TEST_ANGLE_DEG`
+- `SMART_SERVO2_TEST_ANGLE_DEG`
+- `SMART_SERVO_STEP_DELAY_MS`
 
 Inference:
 - `SMART_BOOT_CAPTURE_AND_INFER`
 - `SMART_INFERENCE_SERVO_ACTIONS`
 - `SMART_INFERENCE_ENABLE_JPEG_INPUT`
+- `SMART_SERVO1_CLASS1_ANGLE_DEG`
+- `SMART_SERVO1_CLASS2_ANGLE_DEG`
+- `SMART_SERVO2_ANY_CLASS_ANGLE_DEG`
+- `SMART_SERVO_SECONDARY_DELAY_MS`
+- `SMART_SERVO_ACTION_HOLD_MS`
+- `SMART_SERVO_ACTION_RETURN_DELAY_MS`
 
 Сеть:
 - `SMART_ENABLE_NETWORK_DEBUG_API`
@@ -84,7 +96,8 @@ Inference:
 - углы: safe/home/test/action
 - задержки: settle/step/action hold/return
 
-Для текущего этапа servo-константы фиксированы в `board/`, чтобы избежать дублирования и упростить bring-up.
+Углы и задержки настраиваются через `idf.py menuconfig` в разделе `Smart Trash Firmware -> Servo settings`.
+В `board/` остаются только дефолты и единая точка чтения этих настроек для smoke-test и inference-профиля.
 
 ## Inference API
 
