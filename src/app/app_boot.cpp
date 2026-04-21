@@ -4,9 +4,13 @@
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "sdkconfig.h"
 
 #if CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE
+#include "board/board_config.hpp"
+#include "board/servo_control.hpp"
 #include "camera/camera.hpp"
 #include "inference/inference.h"
 #if CONFIG_SMART_SAMPLE_DUMP_ENABLE
@@ -28,6 +32,8 @@ namespace {
 constexpr char kTag[] = "boot";
 
 #if CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE
+namespace board = smart_bin::board;
+
 void log_heap(const char *stage)
 {
     const size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
@@ -44,6 +50,50 @@ void log_heap(const char *stage)
              static_cast<unsigned>(free_8bit),
              static_cast<unsigned>(free_psram),
              static_cast<unsigned>(largest_psram));
+}
+
+void run_servo_action_for_prediction(const inference_result_t &result)
+{
+#if CONFIG_SMART_INFERENCE_SERVO_ACTIONS
+    const esp_err_t servo_init_ret = smart_bin::servo_init_all();
+    if (servo_init_ret != ESP_OK) {
+        ESP_LOGE(kTag, "Servo init failed before action: 0x%x", servo_init_ret);
+        return;
+    }
+
+    ESP_LOGI(kTag,
+             "Servo action mapping: class=%d label=%s confidence=%.3f",
+             result.predicted_class,
+             result.predicted_label,
+             result.confidence);
+
+    if (result.predicted_class == 1) {
+        ESP_LOGI(kTag,
+                 "Action class=1: servo1 -> %u deg",
+                 static_cast<unsigned>(board::kServo1Class1AngleDeg));
+        (void)smart_bin::servo_set_angle(smart_bin::servo_id_t::kServo1, board::kServo1Class1AngleDeg);
+    } else if (result.predicted_class == 2) {
+        ESP_LOGI(kTag,
+                 "Action class=2: servo1 -> %u deg",
+                 static_cast<unsigned>(board::kServo1Class2AngleDeg));
+        (void)smart_bin::servo_set_angle(smart_bin::servo_id_t::kServo1, board::kServo1Class2AngleDeg);
+    } else {
+        ESP_LOGI(kTag, "Action class=0: servo1 stays at home");
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(board::kServoSecondaryDelayMs));
+    ESP_LOGI(kTag,
+             "Secondary action (any class): servo2 -> %u deg",
+             static_cast<unsigned>(board::kServo2AnyClassAngleDeg));
+    (void)smart_bin::servo_set_angle(smart_bin::servo_id_t::kServo2, board::kServo2AnyClassAngleDeg);
+
+    vTaskDelay(pdMS_TO_TICKS(board::kServoActionHoldMs));
+    (void)smart_bin::servo_set_safe();
+    vTaskDelay(pdMS_TO_TICKS(board::kServoActionReturnDelayMs));
+#else
+    (void)result;
+    ESP_LOGI(kTag, "Inference servo actions are disabled by Kconfig");
+#endif
 }
 
 void run_boot_camera_inference()
@@ -137,6 +187,7 @@ void run_boot_camera_inference()
              result.infer_ms,
              result.total_ms,
              infer_call_ms);
+    run_servo_action_for_prediction(result);
     log_heap("after_boot_inference");
 #else
     ESP_LOGI(kTag, "Boot camera inference is disabled by Kconfig");

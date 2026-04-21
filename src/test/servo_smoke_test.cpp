@@ -1,12 +1,9 @@
 #include "servo_smoke_test.hpp"
 
-#include <array>
-#include <cstdint>
-
 #include "board/board_config.hpp"
 #include "board/board_pins.hpp"
-#include "driver/ledc.h"
-#include "esp_check.h"
+#include "board/servo_control.hpp"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -17,69 +14,6 @@ namespace {
 namespace board = smart_bin::board;
 
 constexpr char kTag[] = "servo_test";
-constexpr ledc_mode_t kSpeedMode = LEDC_LOW_SPEED_MODE;
-constexpr ledc_timer_t kTimer = LEDC_TIMER_0;
-constexpr ledc_timer_bit_t kDutyResolution = LEDC_TIMER_16_BIT;
-constexpr uint32_t kPwmFrequencyHz = 50;
-constexpr uint32_t kServoPeriodUs = 20000;
-constexpr ledc_channel_t kServo1Channel = LEDC_CHANNEL_0;
-constexpr ledc_channel_t kServo2Channel = LEDC_CHANNEL_1;
-
-uint32_t angle_to_pulse_us(uint16_t angle_deg)
-{
-    const uint16_t clamped = angle_deg > board::kServoMaxAngleDeg ? board::kServoMaxAngleDeg : angle_deg;
-    const uint32_t range = board::kServoMaxPulseUs - board::kServoMinPulseUs;
-    return board::kServoMinPulseUs + (range * clamped) / board::kServoMaxAngleDeg;
-}
-
-uint32_t pulse_to_duty(uint32_t pulse_us)
-{
-    const uint32_t max_duty = (1u << kDutyResolution) - 1u;
-    return (pulse_us * max_duty) / kServoPeriodUs;
-}
-
-esp_err_t set_servo_angle(ledc_channel_t channel, uint16_t angle_deg)
-{
-    const uint32_t pulse_us = angle_to_pulse_us(angle_deg);
-    const uint32_t duty = pulse_to_duty(pulse_us);
-
-    ESP_RETURN_ON_ERROR(ledc_set_duty(kSpeedMode, channel, duty), kTag, "ledc_set_duty failed");
-    ESP_RETURN_ON_ERROR(ledc_update_duty(kSpeedMode, channel), kTag, "ledc_update_duty failed");
-    return ESP_OK;
-}
-
-esp_err_t init_ledc()
-{
-    ledc_timer_config_t timer_cfg = {};
-    timer_cfg.speed_mode = kSpeedMode;
-    timer_cfg.timer_num = kTimer;
-    timer_cfg.duty_resolution = kDutyResolution;
-    timer_cfg.freq_hz = kPwmFrequencyHz;
-    timer_cfg.clk_cfg = LEDC_AUTO_CLK;
-    ESP_RETURN_ON_ERROR(ledc_timer_config(&timer_cfg), kTag, "ledc_timer_config failed");
-
-    ledc_channel_config_t ch1_cfg = {};
-    ch1_cfg.gpio_num = board::kServo1Gpio;
-    ch1_cfg.speed_mode = kSpeedMode;
-    ch1_cfg.channel = kServo1Channel;
-    ch1_cfg.intr_type = LEDC_INTR_DISABLE;
-    ch1_cfg.timer_sel = kTimer;
-    ch1_cfg.duty = 0;
-    ch1_cfg.hpoint = 0;
-    ESP_RETURN_ON_ERROR(ledc_channel_config(&ch1_cfg), kTag, "servo1 ledc_channel_config failed");
-
-    ledc_channel_config_t ch2_cfg = {};
-    ch2_cfg.gpio_num = board::kServo2Gpio;
-    ch2_cfg.speed_mode = kSpeedMode;
-    ch2_cfg.channel = kServo2Channel;
-    ch2_cfg.intr_type = LEDC_INTR_DISABLE;
-    ch2_cfg.timer_sel = kTimer;
-    ch2_cfg.duty = 0;
-    ch2_cfg.hpoint = 0;
-    ESP_RETURN_ON_ERROR(ledc_channel_config(&ch2_cfg), kTag, "servo2 ledc_channel_config failed");
-
-    return ESP_OK;
-}
 
 } // namespace
 
@@ -87,38 +21,45 @@ namespace smart_bin {
 
 void run_servo_smoke_test()
 {
-    if (init_ledc() != ESP_OK) {
-        ESP_LOGE(kTag, "LEDC init failed. Check pin mapping and board config.");
+    ESP_LOGI(kTag, "Boot profile: servo smoke bring-up");
+    servo_log_profile_config();
+    ESP_LOGI(kTag,
+             "Smoke sequence: safe -> servo1 test/home -> servo2 test/home (no simultaneous moves)");
+    ESP_LOGI(kTag,
+             "Power note: use stable +5V for SG90 and share GND with ESP32-CAM");
+
+    if (servo_init_all() != ESP_OK) {
+        ESP_LOGE(kTag, "Servo init failed.");
         return;
     }
 
+    const uint32_t free_heap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+    const uint32_t largest_heap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     ESP_LOGI(kTag,
-             "Servo smoke test started: GPIO%d (servo1), GPIO%d (servo2)",
-             board::kServo1Gpio,
-             board::kServo2Gpio);
-    ESP_LOGI(kTag, "Power servos from stable +5V, keep common GND with ESP32-CAM");
+             "Heap before cycles: free=%u largest=%u",
+             static_cast<unsigned>(free_heap),
+             static_cast<unsigned>(largest_heap));
 
-    const std::array<uint16_t, 4> pattern = {
-        board::kServoMinAngleDeg, board::kServoHomeAngleDeg, board::kServoMaxAngleDeg, board::kServoHomeAngleDeg};
-    while (true) {
-        for (const uint16_t servo1_angle : pattern) {
-            const uint16_t servo2_angle = static_cast<uint16_t>(board::kServoMaxAngleDeg - servo1_angle);
+    const uint32_t max_cycles = CONFIG_SMART_SERVO_TEST_CYCLES;
+    ESP_LOGI(kTag,
+             "Configured cycles=%u (0 means infinite)",
+             static_cast<unsigned>(max_cycles));
 
-            if (set_servo_angle(kServo1Channel, servo1_angle) != ESP_OK ||
-                set_servo_angle(kServo2Channel, servo2_angle) != ESP_OK) {
-                ESP_LOGE(kTag, "Failed to update servo duty");
-                return;
-            }
-
-            ESP_LOGI(kTag,
-                     "servo1=%u deg (GPIO%d), servo2=%u deg (GPIO%d)",
-                     servo1_angle,
-                     board::kServo1Gpio,
-                     servo2_angle,
-                     board::kServo2Gpio);
-            vTaskDelay(pdMS_TO_TICKS(board::kServoDwellMs));
+    uint32_t cycle = 0;
+    while (max_cycles == 0 || cycle < max_cycles) {
+        ++cycle;
+        const esp_err_t cycle_ret = servo_run_test_cycle(cycle);
+        if (cycle_ret != ESP_OK) {
+            ESP_LOGE(kTag, "Cycle #%u failed: 0x%x", static_cast<unsigned>(cycle), cycle_ret);
+            return;
         }
     }
+
+    ESP_LOGI(kTag, "Servo smoke test finished after %u cycle(s)", static_cast<unsigned>(cycle));
+    (void)servo_set_safe();
+    vTaskDelay(pdMS_TO_TICKS(board::kServoActionReturnDelayMs));
+    (void)servo_detach(servo_id_t::kServo1);
+    (void)servo_detach(servo_id_t::kServo2);
 }
 
 } // namespace smart_bin

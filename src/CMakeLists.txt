@@ -6,7 +6,6 @@ set(APP_REQUIRES
 
 if(CONFIG_SMART_BOOT_PROFILE_SERVO_TEST)
     list(APPEND APP_SRC_FILES "test/servo_smoke_test.cpp")
-    list(APPEND APP_REQUIRES esp_driver_ledc)
 endif()
 
 if(CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE)
@@ -14,6 +13,11 @@ if(CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE)
         "camera/camera.cpp"
         "inference/inference.cpp")
     list(APPEND APP_REQUIRES esp32-camera)
+endif()
+
+if(CONFIG_SMART_BOOT_PROFILE_SERVO_TEST OR CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE)
+    list(APPEND APP_SRC_FILES "board/servo_control.cpp")
+    list(APPEND APP_REQUIRES esp_driver_ledc)
 endif()
 
 if(CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE AND CONFIG_SMART_SAMPLE_DUMP_ENABLE)

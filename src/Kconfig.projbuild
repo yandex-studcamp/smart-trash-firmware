@@ -27,6 +27,10 @@ config SMART_ENABLE_NETWORK_DEBUG_API
     bool "Enable SoftAP + HTTP debug API"
     default n
 
+config SMART_INFERENCE_SERVO_ACTIONS
+    bool "Run servo action after inference result"
+    default y
+
 config SMART_FLASH_MODEL_WITH_APP
     bool "Flash models/model.espdl together with app"
     default y
@@ -74,6 +78,13 @@ config SMART_HTTP_MAX_UPLOAD_BYTES
     int "Max Upload Size (bytes)"
     range 1024 1048576
     default 262144
+
+config SMART_HTTP_SERVO_DEBUG_ENABLE
+    bool "Enable HTTP servo debug endpoints"
+    default n
+    help
+        Adds POST /servo/home, POST /servo/test and POST /servo/set?id=1&angle=90.
+        Disabled by default to keep the image as small as possible.
 
 endif
 
@@ -179,30 +190,10 @@ endif
 
 if SMART_BOOT_PROFILE_SERVO_TEST
 
-config SMART_SERVO1_GPIO
-    int "Servo #1 signal GPIO"
-    range 0 33
-    default 13
-
-config SMART_SERVO2_GPIO
-    int "Servo #2 signal GPIO"
-    range 0 33
-    default 14
-
-config SMART_SERVO_MIN_PULSE_US
-    int "Servo minimum pulse width (us)"
-    range 400 1000
-    default 500
-
-config SMART_SERVO_MAX_PULSE_US
-    int "Servo maximum pulse width (us)"
-    range 1800 2800
-    default 2400
-
-config SMART_SERVO_DWELL_MS
-    int "Delay between test positions (ms)"
-    range 200 5000
-    default 900
+config SMART_SERVO_TEST_CYCLES
+    int "Servo smoke test cycles (0 = infinite)"
+    range 0 1000
+    default 0
 
 endif
 

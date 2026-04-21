@@ -2,12 +2,6 @@
 
 #include "sdkconfig.h"
 
-#ifndef CONFIG_SMART_SERVO1_GPIO
-#define CONFIG_SMART_SERVO1_GPIO 13
-#endif
-#ifndef CONFIG_SMART_SERVO2_GPIO
-#define CONFIG_SMART_SERVO2_GPIO 14
-#endif
 #ifndef CONFIG_SMART_CAMERA_PIN_PWDN
 #define CONFIG_SMART_CAMERA_PIN_PWDN 32
 #endif
@@ -59,8 +53,8 @@
 
 namespace smart_bin::board {
 
-constexpr int kServo1Gpio = CONFIG_SMART_SERVO1_GPIO;
-constexpr int kServo2Gpio = CONFIG_SMART_SERVO2_GPIO;
+constexpr int kServo1Gpio = 13;
+constexpr int kServo2Gpio = 14;
 
 constexpr int kCameraPinPwdn = CONFIG_SMART_CAMERA_PIN_PWDN;
 constexpr int kCameraPinReset = CONFIG_SMART_CAMERA_PIN_RESET;

@@ -1,29 +1,90 @@
 # smart-trash-firmware
 
-Прошивка для `ESP32-CAM` умной корзины. Сейчас проект в стадии bring-up: проверяем железо, камеру, модель и базовый inference-flow на плате с 4MB flash.
+Прошивка для ESP32-CAM (4MB flash) с двумя профилями запуска:
 
-## Текущий функционал
+- `Servo smoke test` для bring-up механики (2x SG90).
+- `Inference service` для захвата кадра, инференса и опционального действия сервами.
 
-Есть два boot-профиля:
+## Что реализовано на этом этапе
 
-- `Servo smoke test` — проверка 2x SG90 на `GPIO13` и `GPIO14`.
-- `Inference service` — загрузка модели из partition `model`, захват кадра, инференс, логи предсказания и таймингов.
+1. Добавлен общий переиспользуемый servo API (`src/board/servo_control.cpp/.hpp`):
+- `servo_init_all()`
+- `servo_set_angle()`
+- `servo_set_home()`
+- `servo_set_safe()`
+- `servo_detach()`
+- `servo_run_test_cycle()`
+- `servo_log_profile_config()`
 
-Сетевой слой `SoftAP + HTTP` оставлен как debug-инструмент и по умолчанию выключен, чтобы не раздувать образ.
+2. `servo_smoke_test` переведен на общий API:
+- последовательность без одновременного движения двух серв
+- подробные логи по шагам цикла
+- лог памяти (heap) на цикл
+- Kconfig-параметр количества циклов (`SMART_SERVO_TEST_CYCLES`, `0 = бесконечно`)
+
+3. Интеграция с inference:
+- после предсказания выполняется servo action через общий API
+- маппинг классов:
+  - `other(0)` -> серва #1 не двигается
+  - `paper(1)` -> серва #1 идет в угол `150°`
+  - `plastic(2)` -> серва #1 идет в угол `30°`
+  - при любом классе серва #2 через `300 мс` идет в `120°`
+- управление включается/выключается через `SMART_INFERENCE_SERVO_ACTIONS`
+
+4. HTTP servo debug (опционально, по умолчанию выключен):
+- `POST /servo/home`
+- `POST /servo/test`
+- `POST /servo/set?id=1&angle=90`
+- включается флагом `SMART_HTTP_SERVO_DEBUG_ENABLE` (только при `SMART_ENABLE_NETWORK_DEBUG_API=y`)
 
 ## Структура проекта
 
 ```text
 src/
 ├─ app/        # boot flow, sample dump
-├─ inference/  # inference.cpp/.h, C API инференса
-├─ camera/     # camera.cpp/.hpp, работа с ESP32-CAM
-├─ network/    # softap/http debug adapter
-├─ test/       # servo smoke test
-├─ board/      # board-level константы (pins/config/profile)
+├─ inference/  # инференс и C API
+├─ camera/     # захват RGB из ESP32-CAM
+├─ network/    # SoftAP + HTTP debug адаптер
+├─ test/       # servo smoke profile
+├─ board/      # пины, board-константы, servo_control
 ├─ CMakeLists.txt
 └─ Kconfig.projbuild
 ```
+
+## Важные Kconfig-флаги
+
+Общие:
+- `SMART_BOOT_PROFILE_SERVO_TEST`
+- `SMART_BOOT_PROFILE_INFERENCE_SERVICE`
+
+Servo bring-up:
+- `SMART_SERVO_TEST_CYCLES` (`0` = бесконечный цикл)
+
+Inference:
+- `SMART_BOOT_CAPTURE_AND_INFER`
+- `SMART_INFERENCE_SERVO_ACTIONS`
+- `SMART_INFERENCE_ENABLE_JPEG_INPUT`
+
+Сеть:
+- `SMART_ENABLE_NETWORK_DEBUG_API`
+- `SMART_HTTP_SERVO_DEBUG_ENABLE`
+- `SMART_SOFTAP_SSID`
+- `SMART_SOFTAP_PASSWORD`
+- `SMART_HTTP_SERVER_PORT`
+
+Отладка sample dump:
+- `SMART_SAMPLE_DUMP_ENABLE`
+- `SMART_SAMPLE_DUMP_OUTPUT_SIDE`
+
+## Board-константы (servo)
+
+Хранятся в `src/board/board_config.hpp` и `src/board/board_pins.hpp`:
+- GPIO: servo1=`13`, servo2=`14`
+- pulse range: `500..2400 us`
+- углы: safe/home/test/action
+- задержки: settle/step/action hold/return
+
+Для текущего этапа servo-константы фиксированы в `board/`, чтобы избежать дублирования и упростить bring-up.
 
 ## Inference API
 
@@ -42,30 +103,14 @@ esp_err_t inference_run_rgb888(const uint8_t *rgb, uint16_t width, uint16_t heig
 - `input_width`, `input_height`
 - `decode_ms`, `preprocess_ms`, `infer_ms`, `total_ms`
 
-Порядок классов в прошивке сейчас фиксирован:
+Порядок классов в прошивке:
 - `other = 0`
 - `paper = 1`
 - `plastic = 2`
 
-Текущая модель: вход `128x128 RGB`, выход классификации размером `3` (`main_logits`).
-
-## Sample dump (JPEG)
-
-Для отладки можно сохранять sample-кадры из serial-лога в `logs/samples`.
-На плате кадр кодируется в JPEG и печатается hex-блоками (`SAMPLE_BEGIN/SAMPLE_DATA/SAMPLE_END`), на хосте скрипт собирает файлы.
-
-Включить в `menuconfig`:
-- `Boot Profile = Inference service`
-- `Dump captured boot samples to serial log for host-side saving = y`
-- `Sample dump output side (square, pixels) = 128`
-
-Из лога сохранять так:
-
-```bash
-python tools/save_serial_samples.py logs/monitor.log --out logs/samples
-```
-
 ## Flash layout (4MB)
+
+См. `partitions.csv`:
 
 ```text
 nvs       0x009000  0x006000
@@ -74,60 +119,32 @@ factory   0x010000  0x270000
 model     0x280000  0x180000
 ```
 
-Если нужно прошить модель вручную:
+## Сборка и прошивка
 
-```bash
-python $env:IDF_PATH\components\esptool_py\esptool\esptool.py --chip esp32 --port COM3 --baud 460800 write_flash 0x280000 models/model.espdl
+В PowerShell сначала активировать ESP-IDF окружение:
+
+```powershell
+. "C:\Espressif\tools\Microsoft.v6.0.PowerShell_profile.ps1"
 ```
 
-## Удобные скрипты (из main)
+Потом:
 
-В ветке `main` добавлены helper-скрипты для локальной работы с ESP-IDF.
-
-1. Подготовка окружения:
-   - создать `.env` из `.env.example`
-   - установить зависимости:
-
-```bash
-uv sync
-```
-
-2. Открыть консоль с активированным ESP-IDF:
-
-```bash
-uv run python scripts/env_activation.py
-```
-
-3. Сборка и прошивка одной командой:
-
-```bash
-uv run python scripts/idf_deploy.py
-```
-
-## Стандартные команды
-
-Обычная сборка:
-
-```bash
+```powershell
+idf.py fullclean
 idf.py build
+idf.py -p COM3 -b 115200 flash monitor
 ```
 
-Прошить только приложение:
+Если нужна только перепрошивка приложения:
 
-```bash
-idf.py -p COM3 app-flash monitor
+```powershell
+idf.py -p COM3 -b 115200 app-flash monitor
 ```
 
-Полная прошивка (включая table/model если настроено):
+## Host-side сохранение sample dump
 
-```bash
-idf.py -p COM3 flash monitor
+Если включен `SMART_SAMPLE_DUMP_ENABLE`, сохранять кадры из monitor log:
+
+```powershell
+python tools\save_serial_samples.py logs\monitor.log --out logs\samples
 ```
-
-## При обновлении модели
-
-Обычно нужно проверить три вещи:
-
-1. Порядок классов в `src/inference/inference.cpp` (`kClassLabels`).
-2. Что размер `models/model.espdl` влезает в `model` partition.
-3. Нужен ли другой размер sample dump (`Sample dump output side`).
