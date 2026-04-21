@@ -61,7 +61,7 @@ esp_err_t camera_init()
     config.pin_reset = board::kCameraPinReset;
     config.xclk_freq_hz = board::kCameraXclkHz;
     config.frame_size = select_frame_size();
-#if CONFIG_SMART_INFERENCE_ENABLE_JPEG_INPUT
+#if CONFIG_SMART_BOOT_PROFILE_CAMERA_CAPTURE_SERVICE || CONFIG_SMART_ENABLE_HTTP_DEBUG_API
     config.pixel_format = PIXFORMAT_JPEG;
 #else
     config.pixel_format = PIXFORMAT_RGB565;

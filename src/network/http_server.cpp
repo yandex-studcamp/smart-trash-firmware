@@ -120,7 +120,7 @@ esp_err_t infer_handler(httpd_req_t *req)
     return httpd_resp_sendstr(req, response);
 }
 
-#if CONFIG_SMART_HTTP_SERVO_DEBUG_ENABLE
+#if CONFIG_SMART_HTTP_DEBUG_ENABLE_SERVO_ENDPOINTS
 esp_err_t send_servo_http_error(httpd_req_t *req, const char *status, const char *message)
 {
     httpd_resp_set_type(req, "text/plain");
@@ -241,6 +241,15 @@ esp_err_t servo_set_handler(httpd_req_t *req)
 
 namespace smart_bin {
 
+esp_err_t http_server_set_latest_photo(const uint8_t *jpeg, size_t len, uint32_t seq, uint32_t capture_ms)
+{
+    (void)jpeg;
+    (void)len;
+    (void)seq;
+    (void)capture_ms;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 esp_err_t start_http_server()
 {
     if (g_http_server != nullptr) {
@@ -268,7 +277,7 @@ esp_err_t start_http_server()
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(g_http_server, &health_uri), kTag, "Failed to register /health");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(g_http_server, &infer_uri), kTag, "Failed to register /infer");
 
-#if CONFIG_SMART_HTTP_SERVO_DEBUG_ENABLE
+#if CONFIG_SMART_HTTP_DEBUG_ENABLE_SERVO_ENDPOINTS
     static httpd_uri_t servo_home_uri = {};
     servo_home_uri.uri = "/servo/home";
     servo_home_uri.method = HTTP_POST;
@@ -295,13 +304,13 @@ esp_err_t start_http_server()
     ESP_LOGI(kTag,
              "HTTP server started on port %d. Endpoints: GET /health, POST /infer%s",
              CONFIG_SMART_HTTP_SERVER_PORT,
-#if CONFIG_SMART_HTTP_SERVO_DEBUG_ENABLE
+#if CONFIG_SMART_HTTP_DEBUG_ENABLE_SERVO_ENDPOINTS
              ", POST /servo/home, POST /servo/test, POST /servo/set?id=1&angle=90"
 #else
              ""
 #endif
     );
-#if CONFIG_SMART_HTTP_SERVO_DEBUG_ENABLE
+#if CONFIG_SMART_HTTP_DEBUG_ENABLE_SERVO_ENDPOINTS
     ESP_LOGI(kTag, "Servo debug endpoints enabled: POST /servo/home, /servo/test, /servo/set?id=1&angle=90");
 #endif
     return ESP_OK;

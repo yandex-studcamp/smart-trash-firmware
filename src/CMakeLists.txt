@@ -2,7 +2,12 @@ set(APP_SRC_FILES
     "app/app_boot.cpp")
 
 set(APP_REQUIRES
-    esp_timer)
+    esp_timer
+    esp_event
+    esp_http_server
+    esp_netif
+    esp_wifi
+    nvs_flash)
 
 if(CONFIG_SMART_BOOT_PROFILE_SERVO_TEST)
     list(APPEND APP_SRC_FILES "test/servo_smoke_test.cpp")
@@ -15,6 +20,12 @@ if(CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE)
     list(APPEND APP_REQUIRES esp32-camera)
 endif()
 
+if(CONFIG_SMART_BOOT_PROFILE_CAMERA_CAPTURE_SERVICE)
+    list(APPEND APP_SRC_FILES
+        "camera/camera.cpp")
+    list(APPEND APP_REQUIRES esp32-camera)
+endif()
+
 if(CONFIG_SMART_BOOT_PROFILE_SERVO_TEST OR CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE)
     list(APPEND APP_SRC_FILES "board/servo_control.cpp")
     list(APPEND APP_REQUIRES esp_driver_ledc)
@@ -24,16 +35,16 @@ if(CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE AND CONFIG_SMART_SAMPLE_DUMP_ENAB
     list(APPEND APP_SRC_FILES "app/sample_dump.cpp")
 endif()
 
-if(CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE AND CONFIG_SMART_ENABLE_NETWORK_DEBUG_API)
+if(CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE AND CONFIG_SMART_ENABLE_HTTP_DEBUG_API)
     list(APPEND APP_SRC_FILES
         "network/http_server.cpp"
         "network/softap.cpp")
-    list(APPEND APP_REQUIRES
-        esp_event
-        esp_http_server
-        esp_netif
-        esp_wifi
-        nvs_flash)
+endif()
+
+if(CONFIG_SMART_BOOT_PROFILE_CAMERA_CAPTURE_SERVICE)
+    list(APPEND APP_SRC_FILES
+        "network/http_server_photo.cpp"
+        "network/softap.cpp")
 endif()
 
 idf_component_register(

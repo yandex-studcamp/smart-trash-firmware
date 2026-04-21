@@ -521,7 +521,7 @@ extern "C" esp_err_t inference_run_rgb888(const uint8_t *rgb,
 
 extern "C" esp_err_t inference_run_jpeg(const uint8_t *data, size_t len, inference_result_t *out)
 {
-#if !CONFIG_SMART_INFERENCE_ENABLE_JPEG_INPUT
+#if !CONFIG_SMART_ENABLE_HTTP_DEBUG_API
     (void)data;
     (void)len;
     (void)out;

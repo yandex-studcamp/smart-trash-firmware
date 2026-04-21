@@ -84,7 +84,6 @@ esp_err_t configure_ledc()
     servo1_cfg.gpio_num = board::kServo1Gpio;
     servo1_cfg.speed_mode = kSpeedMode;
     servo1_cfg.channel = kServo1Channel;
-    servo1_cfg.intr_type = LEDC_INTR_DISABLE;
     servo1_cfg.timer_sel = kTimer;
     servo1_cfg.duty = 0;
     servo1_cfg.hpoint = 0;
@@ -94,7 +93,6 @@ esp_err_t configure_ledc()
     servo2_cfg.gpio_num = board::kServo2Gpio;
     servo2_cfg.speed_mode = kSpeedMode;
     servo2_cfg.channel = kServo2Channel;
-    servo2_cfg.intr_type = LEDC_INTR_DISABLE;
     servo2_cfg.timer_sel = kTimer;
     servo2_cfg.duty = 0;
     servo2_cfg.hpoint = 0;
@@ -244,4 +242,3 @@ esp_err_t servo_run_test_cycle(uint32_t cycle_index)
 }
 
 } // namespace smart_bin
-

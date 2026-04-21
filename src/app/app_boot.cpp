@@ -16,11 +16,18 @@
 #if CONFIG_SMART_SAMPLE_DUMP_ENABLE
 #include "app/sample_dump.hpp"
 #endif
-#if CONFIG_SMART_ENABLE_NETWORK_DEBUG_API
+#if CONFIG_SMART_ENABLE_HTTP_DEBUG_API
 #include "esp_netif.h"
 #include "network/http_server.hpp"
 #include "network/softap.hpp"
 #endif
+#endif
+
+#if CONFIG_SMART_BOOT_PROFILE_CAMERA_CAPTURE_SERVICE
+#include "camera/camera.hpp"
+#include "esp_netif.h"
+#include "network/http_server.hpp"
+#include "network/softap.hpp"
 #endif
 
 #if CONFIG_SMART_BOOT_PROFILE_SERVO_TEST
@@ -114,10 +121,62 @@ void run_boot_camera_inference()
         return;
     }
 
+    float capture_ms = 0.0f;
+    inference_result_t result = {};
+    esp_err_t infer_ret = ESP_FAIL;
+    float infer_call_ms = 0.0f;
+
+#if CONFIG_SMART_ENABLE_HTTP_DEBUG_API
+    const uint8_t *jpeg_data = nullptr;
+    size_t jpeg_len = 0;
+    camera_fb_t *jpeg_fb = nullptr;
+    const esp_err_t capture_ret = smart_bin::camera_capture_jpeg(&jpeg_data, &jpeg_len, &jpeg_fb, &capture_ms);
+    if (capture_ret != ESP_OK) {
+        ESP_LOGE(kTag, "Camera capture failed: 0x%x", capture_ret);
+        smart_bin::camera_deinit();
+        return;
+    }
+
+    ESP_LOGI(kTag,
+             "Captured JPEG frame: %u bytes in %.2f ms",
+             static_cast<unsigned>(jpeg_len),
+             capture_ms);
+    log_heap("after_capture");
+
+#if CONFIG_SMART_SAMPLE_DUMP_ENABLE
+    ESP_LOGW(kTag, "Sample dump is only supported for RGB888 boot capture; skipped in JPEG capture mode");
+#endif
+
+    const int64_t infer_call_start_us = esp_timer_get_time();
+    bool readd_task_wdt = false;
+#if CONFIG_ESP_TASK_WDT_EN
+    const esp_err_t wdt_delete_ret = esp_task_wdt_delete(nullptr);
+    if (wdt_delete_ret == ESP_OK) {
+        readd_task_wdt = true;
+        ESP_LOGW(kTag, "Temporarily removed current task from task_wdt for boot inference");
+    } else if (wdt_delete_ret != ESP_ERR_NOT_FOUND) {
+        ESP_LOGW(kTag, "esp_task_wdt_delete failed: 0x%x", wdt_delete_ret);
+    }
+#endif
+
+    infer_ret = inference_run_jpeg(jpeg_data, jpeg_len, &result);
+
+#if CONFIG_ESP_TASK_WDT_EN
+    if (readd_task_wdt) {
+        const esp_err_t wdt_add_ret = esp_task_wdt_add(nullptr);
+        if (wdt_add_ret != ESP_OK) {
+            ESP_LOGE(kTag, "Failed to re-add current task to task_wdt: 0x%x", wdt_add_ret);
+        }
+    }
+#endif
+    infer_call_ms = static_cast<float>(esp_timer_get_time() - infer_call_start_us) / 1000.0f;
+
+    smart_bin::camera_release(jpeg_fb);
+    smart_bin::camera_deinit();
+#else
     uint8_t *rgb_data = nullptr;
     uint16_t rgb_width = 0;
     uint16_t rgb_height = 0;
-    float capture_ms = 0.0f;
     const esp_err_t capture_ret =
         smart_bin::camera_capture_rgb888(&rgb_data, &rgb_width, &rgb_height, &capture_ms);
     if (capture_ret != ESP_OK) {
@@ -140,7 +199,6 @@ void run_boot_camera_inference()
     }
 #endif
 
-    inference_result_t result = {};
     const int64_t infer_call_start_us = esp_timer_get_time();
     bool readd_task_wdt = false;
 #if CONFIG_ESP_TASK_WDT_EN
@@ -153,7 +211,7 @@ void run_boot_camera_inference()
     }
 #endif
 
-    const esp_err_t infer_ret = inference_run_rgb888(rgb_data, rgb_width, rgb_height, &result);
+    infer_ret = inference_run_rgb888(rgb_data, rgb_width, rgb_height, &result);
 
 #if CONFIG_ESP_TASK_WDT_EN
     if (readd_task_wdt) {
@@ -163,10 +221,11 @@ void run_boot_camera_inference()
         }
     }
 #endif
-    const float infer_call_ms = static_cast<float>(esp_timer_get_time() - infer_call_start_us) / 1000.0f;
+    infer_call_ms = static_cast<float>(esp_timer_get_time() - infer_call_start_us) / 1000.0f;
 
     smart_bin::camera_free_rgb888(rgb_data);
     smart_bin::camera_deinit();
+#endif
 
     if (infer_ret != ESP_OK) {
         ESP_LOGE(kTag, "Boot inference failed: 0x%x", infer_ret);
@@ -198,7 +257,7 @@ void run_inference_boot_flow()
 {
     run_boot_camera_inference();
 
-#if CONFIG_SMART_ENABLE_NETWORK_DEBUG_API
+#if CONFIG_SMART_ENABLE_HTTP_DEBUG_API
     esp_netif_t *ap_netif = nullptr;
     const esp_err_t ap_ret = smart_bin::start_softap(&ap_netif);
     if (ap_ret != ESP_OK) {
@@ -226,6 +285,99 @@ void run_inference_boot_flow()
 }
 #endif
 
+#if CONFIG_SMART_BOOT_PROFILE_CAMERA_CAPTURE_SERVICE
+#ifndef CONFIG_SMART_CAMERA_CAPTURE_INTERVAL_SEC
+#define CONFIG_SMART_CAMERA_CAPTURE_INTERVAL_SEC 2
+#endif
+
+constexpr uint32_t kCameraCaptureIntervalMs = CONFIG_SMART_CAMERA_CAPTURE_INTERVAL_SEC * 1000U;
+constexpr uint32_t kCameraCaptureTaskStackBytes = 6144;
+constexpr UBaseType_t kCameraCaptureTaskPriority = 4;
+TaskHandle_t g_camera_capture_task = nullptr;
+
+void camera_capture_stream_task(void *)
+{
+    uint32_t seq = 0;
+
+    while (true) {
+        const uint8_t *jpeg_data = nullptr;
+        size_t jpeg_len = 0;
+        camera_fb_t *fb = nullptr;
+        float capture_ms = 0.0f;
+
+        const esp_err_t capture_ret = smart_bin::camera_capture_jpeg(&jpeg_data, &jpeg_len, &fb, &capture_ms);
+        if (capture_ret != ESP_OK) {
+            ESP_LOGE(kTag, "JPEG capture failed: 0x%x", capture_ret);
+            vTaskDelay(pdMS_TO_TICKS(kCameraCaptureIntervalMs));
+            continue;
+        }
+
+        ++seq;
+        const esp_err_t publish_ret =
+            smart_bin::http_server_set_latest_photo(jpeg_data, jpeg_len, seq, static_cast<uint32_t>(capture_ms));
+        smart_bin::camera_release(fb);
+
+        if (publish_ret != ESP_OK) {
+            ESP_LOGE(kTag, "Failed to publish photo #%u: 0x%x", seq, publish_ret);
+        } else {
+            ESP_LOGI(kTag,
+                     "Photo #%u captured: jpeg=%u bytes capture=%.2f ms",
+                     seq,
+                     static_cast<unsigned>(jpeg_len),
+                     capture_ms);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(kCameraCaptureIntervalMs));
+    }
+}
+
+void run_camera_capture_boot_flow()
+{
+    ESP_LOGI(kTag,
+             "Boot profile: camera capture service (interval=%u sec)",
+             static_cast<unsigned>(CONFIG_SMART_CAMERA_CAPTURE_INTERVAL_SEC));
+
+    esp_netif_t *ap_netif = nullptr;
+    const esp_err_t ap_ret = smart_bin::start_softap(&ap_netif);
+    if (ap_ret != ESP_OK) {
+        ESP_LOGE(kTag, "SoftAP start failed: 0x%x", ap_ret);
+        return;
+    }
+
+    const esp_err_t http_ret = smart_bin::start_http_server();
+    if (http_ret != ESP_OK) {
+        ESP_LOGE(kTag, "HTTP server start failed: 0x%x", http_ret);
+        return;
+    }
+
+    const esp_err_t cam_init_ret = smart_bin::camera_init();
+    if (cam_init_ret != ESP_OK) {
+        ESP_LOGE(kTag, "Camera init failed: 0x%x", cam_init_ret);
+        return;
+    }
+
+    if (g_camera_capture_task == nullptr) {
+        const BaseType_t task_ok = xTaskCreate(
+            camera_capture_stream_task,
+            "camera_capture_stream",
+            kCameraCaptureTaskStackBytes,
+            nullptr,
+            kCameraCaptureTaskPriority,
+            &g_camera_capture_task);
+        if (task_ok != pdPASS) {
+            ESP_LOGE(kTag, "Failed to create camera capture task");
+            return;
+        }
+    }
+
+    esp_netif_ip_info_t ip_info = {};
+    if (ap_netif != nullptr && esp_netif_get_ip_info(ap_netif, &ip_info) == ESP_OK) {
+        ESP_LOGI(kTag, "Photo stream URL: http://" IPSTR ":%d/photo.jpg", IP2STR(&ip_info.ip), CONFIG_SMART_HTTP_SERVER_PORT);
+        ESP_LOGI(kTag, "Health URL:      http://" IPSTR ":%d/health", IP2STR(&ip_info.ip), CONFIG_SMART_HTTP_SERVER_PORT);
+    }
+}
+#endif
+
 } // namespace
 
 namespace smart_bin {
@@ -237,6 +389,8 @@ void run_boot_flow()
 #if CONFIG_SMART_BOOT_PROFILE_SERVO_TEST
     ESP_LOGI(kTag, "Boot profile: servo smoke test");
     run_servo_smoke_test();
+#elif CONFIG_SMART_BOOT_PROFILE_CAMERA_CAPTURE_SERVICE
+    run_camera_capture_boot_flow();
 #elif CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE
     ESP_LOGI(kTag, "Boot profile: inference service");
     run_inference_boot_flow();

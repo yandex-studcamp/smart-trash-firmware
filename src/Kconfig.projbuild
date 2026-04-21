@@ -10,7 +10,22 @@ config SMART_BOOT_PROFILE_SERVO_TEST
 config SMART_BOOT_PROFILE_INFERENCE_SERVICE
     bool "SoftAP + HTTP inference service"
 
+config SMART_BOOT_PROFILE_CAMERA_CAPTURE_SERVICE
+    bool "SoftAP + HTTP camera capture service (periodic photo stream)"
+
 endchoice
+
+if SMART_BOOT_PROFILE_CAMERA_CAPTURE_SERVICE
+
+config SMART_CAMERA_CAPTURE_INTERVAL_SEC
+    int "Camera capture interval (seconds)"
+    range 1 3600
+    default 2
+    help
+        ESP32-CAM captures one JPEG frame every N seconds and publishes
+        latest frame over HTTP endpoint GET /photo.jpg.
+
+endif
 
 menu "Servo settings"
 
@@ -87,12 +102,7 @@ config SMART_BOOT_CAPTURE_AND_INFER
     bool "Capture camera image and run inference on every boot/reset"
     default y
 
-config SMART_INFERENCE_ENABLE_JPEG_INPUT
-    bool "Enable JPEG input decode path in inference core"
-    default y if SMART_ENABLE_NETWORK_DEBUG_API
-    default n
-
-config SMART_ENABLE_NETWORK_DEBUG_API
+config SMART_ENABLE_HTTP_DEBUG_API
     bool "Enable SoftAP + HTTP debug API"
     default n
 
@@ -123,32 +133,9 @@ config SMART_SAMPLE_DUMP_OUTPUT_SIDE
         Full-resolution RGB over UART is slow enough to trigger task watchdog
         on ESP32-CAM.
 
-if SMART_ENABLE_NETWORK_DEBUG_API
+if SMART_ENABLE_HTTP_DEBUG_API
 
-config SMART_SOFTAP_SSID
-    string "SoftAP SSID"
-    default "smart-trash-cam"
-
-config SMART_SOFTAP_PASSWORD
-    string "SoftAP Password"
-    default "smartbin1"
-
-config SMART_SOFTAP_CHANNEL
-    int "SoftAP Channel"
-    range 1 13
-    default 6
-
-config SMART_HTTP_SERVER_PORT
-    int "HTTP Server Port"
-    range 1 65535
-    default 80
-
-config SMART_HTTP_MAX_UPLOAD_BYTES
-    int "Max Upload Size (bytes)"
-    range 1024 1048576
-    default 262144
-
-config SMART_HTTP_SERVO_DEBUG_ENABLE
+config SMART_HTTP_DEBUG_ENABLE_SERVO_ENDPOINTS
     bool "Enable HTTP servo debug endpoints"
     default n
     help
@@ -254,6 +241,33 @@ config SMART_CAMERA_PIN_HREF
 config SMART_CAMERA_PIN_PCLK
     int "Camera PCLK pin"
     default 22
+
+endif
+
+if SMART_BOOT_PROFILE_CAMERA_CAPTURE_SERVICE || SMART_ENABLE_HTTP_DEBUG_API
+
+config SMART_SOFTAP_SSID
+    string "SoftAP SSID"
+    default "smart-trash-cam"
+
+config SMART_SOFTAP_PASSWORD
+    string "SoftAP Password"
+    default "smartbin1"
+
+config SMART_SOFTAP_CHANNEL
+    int "SoftAP Channel"
+    range 1 13
+    default 6
+
+config SMART_HTTP_SERVER_PORT
+    int "HTTP Server Port"
+    range 1 65535
+    default 80
+
+config SMART_HTTP_MAX_UPLOAD_BYTES
+    int "Max Upload Size (bytes)"
+    range 1024 1048576
+    default 262144
 
 endif
 
