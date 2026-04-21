@@ -269,6 +269,61 @@ python scripts\idf_deploy.py
 - запускает `idf.py build`;
 - запускает `idf.py -p <port> -b <baud> flash`.
 
+## Экспорт моделей в ONNX и ESP-DL
+
+Host-side экспорт лежит в `scripts/` и не зависит от кода `smart-trash-ml` во время запуска. Для каждой архитектуры предполагается отдельный консольный скрипт. Для текущего student autoencoder добавлен:
+
+```text
+scripts/export_student_only_autoencoder_espdl.py
+```
+
+Скрипт делает полный пайплайн:
+
+1. загружает `config.json` и `best_model.pth` эксперимента;
+2. поднимает архитектуру `StudentOnlyAutoencoder`;
+3. экспортирует `.onnx`;
+4. запускает квантизацию ONNX через ESP-PPQ;
+5. сохраняет `.espdl`, `.info` и `.json`.
+
+### Зависимости для экспорта
+
+Рекомендуется использовать отдельное Python-окружение под host-side export. Набор зависимостей лежит в:
+
+```text
+scripts/requirements_model_export.txt
+```
+
+Установка:
+
+```powershell
+python -m pip install -r scripts\requirements_model_export.txt
+```
+
+### Пример запуска для текущего эксперимента
+
+```powershell
+python scripts\export_student_only_autoencoder_espdl.py `
+  --model_path C:\Users\memel\Studcamp\smart-trash-ml\src\models\student_autoencoder.py `
+  --experiment_dir C:\Users\memel\Studcamp\smart-trash-ml\experiments\anomaly_detection\student_autoencoder_esp_v2_masked_topk `
+  --output_path_name student_autoencoder_esp_v2_masked_topk_96x96 `
+  --target c
+```
+
+Что важно:
+
+- `--target c` нужен для классического `ESP32`, потому что в ESP-PPQ/ESP-DL этот target используется для моделей под `esp32`.
+- выходной каталог по умолчанию: `models/exported/`.
+- итоговый набор файлов будет таким:
+
+```text
+models/exported/<name>.onnx
+models/exported/<name>.espdl
+models/exported/<name>.info
+models/exported/<name>.json
+```
+
+Скрипт также принимает явные `--config_path` и `--weights_path`, если auto-detection по `--experiment_dir` не подходит.
+
 ## Размер прошивки
 
 Проект рассчитан на 4 MB flash. Базовые оптимизации лежат в `sdkconfig.defaults`:
