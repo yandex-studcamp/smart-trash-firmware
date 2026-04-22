@@ -10,6 +10,7 @@
 - Захват кадра с ESP32-CAM.
 - Инференс ESP-DL модели из отдельного flash-раздела `model`.
 - Логирование результата классификации, scores и времени этапов.
+- Поддержка `Prediction policy`, включая `nothing` по confidence threshold и через premodel (MSE threshold).
 - Управление сервами после инференса.
 - Режим запуска инференса по кнопке или периодически раз в N секунд.
 - Отдельный camera-capture профиль для просмотра последнего JPEG кадра по Wi-Fi.
@@ -46,7 +47,8 @@ smart-trash-firmware/
 ├─ partitions.csv
 ├─ sdkconfig.defaults
 ├─ models/
-│  └─ model.espdl
+│  ├─ model.espdl
+│  └─ premodel.espdl
 ├─ main/
 │  └─ main.cpp
 ├─ src/
@@ -107,15 +109,23 @@ HTTP debug API можно включить через `SMART_ENABLE_HTTP_DEBUG_A
 
 ## Инференс
 
-Модель лежит в:
+Основная модель лежит в:
 
 ```text
-models/model.espdl
+models/<SMART_MODEL_PRIMARY_FILENAME>
 ```
 
-При `SMART_FLASH_MODEL_WITH_APP=y` CMake добавляет модель в flash-команду автоматически и прошивает её в partition `model`.
+При policy `SMART_PREDICTION_POLICY_PRESENCE_PREMODEL` дополнительно используется:
 
-Порядок классов в прошивке:
+```text
+models/<SMART_MODEL_GATE_FILENAME>
+```
+
+При `SMART_FLASH_MODEL_WITH_APP=y` CMake автоматически добавляет модели в flash-команду:
+- основную в partition `model`;
+- gate/premodel в partition `premodel` (только для `PRESENCE_PREMODEL` policy).
+
+Базовый порядок классов в классификаторе:
 
 | Class id | Label |
 | --- | --- |
@@ -125,16 +135,23 @@ models/model.espdl
 
 Прошивка не “угадывает” смысл классов из модели. Порядок задан в `src/inference/inference.cpp`, поэтому экспорт модели должен использовать тот же порядок классов.
 
+Доступные `Prediction policy`:
+- `SMART_PREDICTION_POLICY_LEGACY_3_CLASS`: обычная 3-классовая классификация.
+- `SMART_PREDICTION_POLICY_EXPLICIT_NOTHING_CLASS`: `nothing` приходит как отдельный класс из модели.
+- `SMART_PREDICTION_POLICY_CONFIDENCE_THRESHOLD`: если confidence ниже `SMART_CONFIDENCE_THRESHOLD_PERCENT`, выдаётся synthetic `nothing`.
+- `SMART_PREDICTION_POLICY_PRESENCE_PREMODEL`: сначала запускается premodel (один MSE-like output); если `gate_mse <= SMART_PRESENCE_MSE_THRESHOLD`, выдаётся synthetic `nothing`, иначе запускается основной классификатор.
+
 На старте `inference_init()`:
 
 - ищет partition `model`;
 - загружает ESP-DL модель;
+- при `PRESENCE_PREMODEL` policy загружает вторую ESP-DL модель из partition `premodel`;
 - печатает input/output tensors;
-- выбирает output tensor размером на 3 класса;
+- выбирает output tensor классификатора (по active policy);
 - создаёт `ImagePreprocessor`;
 - проверяет input shape `[1,H,W,3]`.
 
-На текущей модели ожидается вход RGB с размером, который берётся из input tensor модели. Если модель обновилась с другим размером входа, код обычно не нужно править: размер читается из модели. Важно, чтобы модель всё ещё имела 3 класса и совместимый RGB input.
+На текущей модели ожидается вход RGB с размером, который берётся из input tensor модели. Если модель обновилась с другим размером входа, код обычно не нужно править: размер читается из модели. Важно, чтобы классификатор имел совместимый RGB input и число классов, соответствующее выбранной policy (3 или 4).
 
 ### Preprocessing и scores
 
@@ -190,8 +207,9 @@ SMART_INFERENCE_SERVO_ACTIONS=y
 ```text
 nvs       data  nvs      0x9000    0x6000
 phy_init  data  phy      0xf000    0x1000
-factory   app   factory  0x10000   0x270000
-model     data  0x82     0x280000  0x180000
+factory   app   factory  0x10000   0x260000
+model     data  0x82     0x270000  0x150000
+premodel  data  0x83     0x3c0000  0x040000
 ```
 
 Смысл разделов:
@@ -199,9 +217,14 @@ model     data  0x82     0x280000  0x180000
 - `nvs`: настройки Wi-Fi/ESP-IDF.
 - `phy_init`: RF calibration data.
 - `factory`: основная прошивка.
-- `model`: ESP-DL модель.
+- `model`: основная ESP-DL модель классификатора.
+- `premodel`: gate/presence ESP-DL модель (для policy с premodel).
 
-Лимит модели сейчас `0x180000` байт. Этот же лимит проверяется в `src/CMakeLists.txt`, чтобы сборка падала заранее, если `models/model.espdl` не помещается.
+Лимиты сейчас:
+- `model`: `0x150000` байт.
+- `premodel`: `0x040000` байт (256 KB, покрывает требование premodel <= 200 KB с запасом).
+
+Эти лимиты проверяются в `src/CMakeLists.txt`, чтобы сборка падала заранее, если модель(и) не помещаются.
 
 ## Сборка и прошивка
 
@@ -287,7 +310,7 @@ CONFIG_ESP_ERR_TO_NAME_LOOKUP=n
 idf.py size
 ```
 
-При ошибке вида `app partition is too small` нужно либо уменьшать функциональность, либо менять размер `factory` в `partitions.csv`. При ошибке размера модели нужно уменьшать `models/model.espdl` или увеличивать partition `model`, если это позволяет 4 MB flash.
+При ошибке вида `app partition is too small` нужно либо уменьшать функциональность, либо менять размер `factory` в `partitions.csv`. При ошибке размера модели нужно уменьшать `models/<SMART_MODEL_PRIMARY_FILENAME>` (и/или `models/<SMART_MODEL_GATE_FILENAME>` для premodel-policy) или пересобирать разметку partition'ов в пределах 4 MB flash.
 
 ## Быстрая проверка после прошивки
 

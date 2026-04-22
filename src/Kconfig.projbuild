@@ -110,6 +110,67 @@ config SMART_INFERENCE_SERVO_ACTIONS
     bool "Run servo action after inference result"
     default y
 
+choice SMART_PREDICTION_POLICY
+    prompt "Prediction policy"
+    default SMART_PREDICTION_POLICY_LEGACY_3_CLASS
+    help
+        Defines how firmware maps model scores to final prediction.
+
+config SMART_PREDICTION_POLICY_LEGACY_3_CLASS
+    bool "Legacy 3-class model (other/paper/plastic)"
+
+config SMART_PREDICTION_POLICY_EXPLICIT_NOTHING_CLASS
+    bool "4-class model with explicit 'nothing' class"
+
+config SMART_PREDICTION_POLICY_CONFIDENCE_THRESHOLD
+    bool "3-class model + confidence threshold => synthetic 'nothing'"
+
+config SMART_PREDICTION_POLICY_PRESENCE_PREMODEL
+    bool "Presence premodel (MSE threshold) + main classifier model"
+
+endchoice
+
+config SMART_NOTHING_CLASS_ID
+    int "Class id for 'nothing'"
+    range 0 15
+    default 3
+    depends on SMART_PREDICTION_POLICY_EXPLICIT_NOTHING_CLASS || SMART_PREDICTION_POLICY_CONFIDENCE_THRESHOLD || SMART_PREDICTION_POLICY_PRESENCE_PREMODEL
+    help
+        In EXPLICIT_NOTHING policy this must match real model class id.
+        In CONFIDENCE_THRESHOLD policy this id is emitted when confidence is low.
+
+config SMART_CONFIDENCE_THRESHOLD_PERCENT
+    int "Confidence threshold for synthetic 'nothing' (percent)"
+    range 0 100
+    default 55
+    depends on SMART_PREDICTION_POLICY_CONFIDENCE_THRESHOLD
+    help
+        If max class probability is below this threshold, prediction is
+        converted to 'nothing' and servo action is skipped.
+
+config SMART_MODEL_PRIMARY_FILENAME
+    string "Primary model filename (.espdl)"
+    default "model.espdl"
+    help
+        Filename in models/ folder for the main classifier model.
+
+config SMART_MODEL_GATE_FILENAME
+    string "Presence premodel filename (.espdl)"
+    default "premodel.espdl"
+    depends on SMART_PREDICTION_POLICY_PRESENCE_PREMODEL
+    help
+        Filename in models/ folder for gate/presence model (MSE premodel).
+
+config SMART_PRESENCE_MSE_THRESHOLD
+    string "Presence premodel MSE threshold"
+    default "0.008"
+    depends on SMART_PREDICTION_POLICY_PRESENCE_PREMODEL
+    help
+        Gate premodel outputs one MSE-like scalar.
+        If gate_mse <= threshold, firmware emits synthetic 'nothing'.
+        If gate_mse > threshold, firmware runs main classifier.
+        Use decimal format, for example: 0.0086928317
+
 choice SMART_INFERENCE_TRIGGER_MODE
     prompt "Inference trigger mode"
     default SMART_INFERENCE_TRIGGER_MODE_PERIODIC

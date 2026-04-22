@@ -1,5 +1,8 @@
 #include "app_boot.hpp"
 
+#include <cstdio>
+#include <cstring>
+
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
@@ -75,18 +78,23 @@ void run_servo_action_for_prediction(const inference_result_t &result)
              result.predicted_label,
              result.confidence);
 
-    if (result.predicted_class == 1) {
+    if (result.predicted_nothing || (result.predicted_label != nullptr && std::strcmp(result.predicted_label, "nothing") == 0)) {
+        ESP_LOGI(kTag, "Action skipped: prediction is 'nothing'");
+        return;
+    }
+
+    if (result.predicted_label != nullptr && std::strcmp(result.predicted_label, "paper") == 0) {
         ESP_LOGI(kTag,
-                 "Action class=1: servo1 -> %u deg",
+                 "Action label=paper: servo1 -> %u deg",
                  static_cast<unsigned>(board::kServo1Class1AngleDeg));
         (void)smart_bin::servo_set_angle(smart_bin::servo_id_t::kServo1, board::kServo1Class1AngleDeg);
-    } else if (result.predicted_class == 2) {
+    } else if (result.predicted_label != nullptr && std::strcmp(result.predicted_label, "plastic") == 0) {
         ESP_LOGI(kTag,
-                 "Action class=2: servo1 -> %u deg",
+                 "Action label=plastic: servo1 -> %u deg",
                  static_cast<unsigned>(board::kServo1Class2AngleDeg));
         (void)smart_bin::servo_set_angle(smart_bin::servo_id_t::kServo1, board::kServo1Class2AngleDeg);
     } else {
-        ESP_LOGI(kTag, "Action class=0: servo1 stays at home");
+        ESP_LOGI(kTag, "Action label=%s: servo1 stays at home", result.predicted_label ? result.predicted_label : "<null>");
     }
 
     vTaskDelay(pdMS_TO_TICKS(board::kServoSecondaryDelayMs));
@@ -101,6 +109,66 @@ void run_servo_action_for_prediction(const inference_result_t &result)
 #else
     (void)result;
     ESP_LOGI(kTag, "Inference servo actions are disabled by Kconfig");
+#endif
+}
+
+void log_prediction_scores(const inference_result_t &result)
+{
+    if (result.score_count == 0) {
+        ESP_LOGI(kTag, "Scores: <empty>");
+        return;
+    }
+
+    char buffer[192] = {};
+    size_t pos = 0;
+    for (uint8_t i = 0; i < result.score_count && i < 4; ++i) {
+        const int written =
+            std::snprintf(buffer + pos, sizeof(buffer) - pos, "%sclass%u=%.4f", (i == 0) ? "" : " ", i, result.scores[i]);
+        if (written <= 0) {
+            break;
+        }
+        if (static_cast<size_t>(written) >= (sizeof(buffer) - pos)) {
+            pos = sizeof(buffer) - 1;
+            break;
+        }
+        pos += static_cast<size_t>(written);
+    }
+
+    ESP_LOGI(kTag, "Scores: %s", buffer);
+}
+
+bool temporarily_remove_current_task_from_wdt()
+{
+#if CONFIG_ESP_TASK_WDT_EN
+    const esp_err_t status_ret = esp_task_wdt_status(nullptr);
+    if (status_ret != ESP_OK) {
+        return false;
+    }
+
+    const esp_err_t delete_ret = esp_task_wdt_delete(nullptr);
+    if (delete_ret == ESP_OK) {
+        ESP_LOGW(kTag, "Temporarily removed current task from task_wdt for inference");
+        return true;
+    }
+
+    ESP_LOGW(kTag, "esp_task_wdt_delete failed: 0x%x", delete_ret);
+#endif
+    return false;
+}
+
+void restore_current_task_to_wdt(bool should_restore)
+{
+#if CONFIG_ESP_TASK_WDT_EN
+    if (!should_restore) {
+        return;
+    }
+
+    const esp_err_t add_ret = esp_task_wdt_add(nullptr);
+    if (add_ret != ESP_OK) {
+        ESP_LOGE(kTag, "Failed to re-add current task to task_wdt: 0x%x", add_ret);
+    }
+#else
+    (void)should_restore;
 #endif
 }
 
@@ -149,31 +217,14 @@ void run_boot_camera_inference()
 #endif
 
     const int64_t infer_call_start_us = esp_timer_get_time();
-    bool readd_task_wdt = false;
-#if CONFIG_ESP_TASK_WDT_EN
-    const esp_err_t wdt_delete_ret = esp_task_wdt_delete(nullptr);
-    if (wdt_delete_ret == ESP_OK) {
-        readd_task_wdt = true;
-        ESP_LOGW(kTag, "Temporarily removed current task from task_wdt for boot inference");
-    } else if (wdt_delete_ret != ESP_ERR_NOT_FOUND) {
-        ESP_LOGW(kTag, "esp_task_wdt_delete failed: 0x%x", wdt_delete_ret);
-    }
-#endif
+    const bool readd_task_wdt = temporarily_remove_current_task_from_wdt();
 
     infer_ret = inference_run_jpeg(jpeg_data, jpeg_len, &result);
 
-#if CONFIG_ESP_TASK_WDT_EN
-    if (readd_task_wdt) {
-        const esp_err_t wdt_add_ret = esp_task_wdt_add(nullptr);
-        if (wdt_add_ret != ESP_OK) {
-            ESP_LOGE(kTag, "Failed to re-add current task to task_wdt: 0x%x", wdt_add_ret);
-        }
-    }
-#endif
+    restore_current_task_to_wdt(readd_task_wdt);
     infer_call_ms = static_cast<float>(esp_timer_get_time() - infer_call_start_us) / 1000.0f;
 
     smart_bin::camera_release(jpeg_fb);
-    smart_bin::camera_deinit();
 #else
     uint8_t *rgb_data = nullptr;
     uint16_t rgb_width = 0;
@@ -201,31 +252,14 @@ void run_boot_camera_inference()
 #endif
 
     const int64_t infer_call_start_us = esp_timer_get_time();
-    bool readd_task_wdt = false;
-#if CONFIG_ESP_TASK_WDT_EN
-    const esp_err_t wdt_delete_ret = esp_task_wdt_delete(nullptr);
-    if (wdt_delete_ret == ESP_OK) {
-        readd_task_wdt = true;
-        ESP_LOGW(kTag, "Temporarily removed current task from task_wdt for boot inference");
-    } else if (wdt_delete_ret != ESP_ERR_NOT_FOUND) {
-        ESP_LOGW(kTag, "esp_task_wdt_delete failed: 0x%x", wdt_delete_ret);
-    }
-#endif
+    const bool readd_task_wdt = temporarily_remove_current_task_from_wdt();
 
     infer_ret = inference_run_rgb888(rgb_data, rgb_width, rgb_height, &result);
 
-#if CONFIG_ESP_TASK_WDT_EN
-    if (readd_task_wdt) {
-        const esp_err_t wdt_add_ret = esp_task_wdt_add(nullptr);
-        if (wdt_add_ret != ESP_OK) {
-            ESP_LOGE(kTag, "Failed to re-add current task to task_wdt: 0x%x", wdt_add_ret);
-        }
-    }
-#endif
+    restore_current_task_to_wdt(readd_task_wdt);
     infer_call_ms = static_cast<float>(esp_timer_get_time() - infer_call_start_us) / 1000.0f;
 
     smart_bin::camera_free_rgb888(rgb_data);
-    smart_bin::camera_deinit();
 #endif
 
     if (infer_ret != ESP_OK) {
@@ -238,7 +272,7 @@ void run_boot_camera_inference()
              result.predicted_class,
              result.predicted_label,
              result.confidence);
-    ESP_LOGI(kTag, "Scores: other=%.4f paper=%.4f plastic=%.4f", result.scores[0], result.scores[1], result.scores[2]);
+    log_prediction_scores(result);
     ESP_LOGI(kTag,
              "Timing ms: capture=%.2f decode=%.2f preprocess=%.2f infer=%.2f total=%.2f api_call=%.2f",
              capture_ms,

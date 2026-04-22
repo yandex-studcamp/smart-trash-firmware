@@ -13,8 +13,10 @@ extern "C" {
 typedef struct {
     int predicted_class;
     const char *predicted_label;
+    bool predicted_nothing;
     float confidence;
-    float scores[3];
+    float scores[4];
+    uint8_t score_count;
     uint16_t input_width;
     uint16_t input_height;
     float decode_ms;

@@ -56,19 +56,37 @@ idf_component_register(
 target_compile_features(${COMPONENT_LIB} PRIVATE cxx_std_17)
 
 if(CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE AND CONFIG_SMART_FLASH_MODEL_WITH_APP)
-    set(MODEL_IMAGE_FILE "${PROJECT_DIR}/models/model.espdl")
-    math(EXPR MODEL_PARTITION_MAX_BYTES "0x180000")
+    set(MODEL_IMAGE_FILE "${PROJECT_DIR}/models/${CONFIG_SMART_MODEL_PRIMARY_FILENAME}")
+    math(EXPR MODEL_PARTITION_MAX_BYTES "0x150000")
     if(NOT EXISTS "${MODEL_IMAGE_FILE}")
         message(FATAL_ERROR
                 "Model file not found: ${MODEL_IMAGE_FILE}\n"
-                "Put your exported .espdl model at models/model.espdl")
+                "Put your exported main .espdl model at models/${CONFIG_SMART_MODEL_PRIMARY_FILENAME}")
     endif()
     file(SIZE "${MODEL_IMAGE_FILE}" MODEL_IMAGE_SIZE)
     if(MODEL_IMAGE_SIZE GREATER MODEL_PARTITION_MAX_BYTES)
         message(FATAL_ERROR
                 "Model file is too large for the model partition: ${MODEL_IMAGE_SIZE} bytes > ${MODEL_PARTITION_MAX_BYTES} bytes\n"
-                "Shrink models/model.espdl or increase the model partition in partitions.csv")
+                "Shrink models/${CONFIG_SMART_MODEL_PRIMARY_FILENAME} or increase the model partition in partitions.csv")
     endif()
 
     esptool_py_flash_to_partition(flash "model" "${MODEL_IMAGE_FILE}")
+
+    if(CONFIG_SMART_PREDICTION_POLICY_PRESENCE_PREMODEL)
+        set(GATE_MODEL_IMAGE_FILE "${PROJECT_DIR}/models/${CONFIG_SMART_MODEL_GATE_FILENAME}")
+        math(EXPR GATE_MODEL_PARTITION_MAX_BYTES "0x040000")
+        if(NOT EXISTS "${GATE_MODEL_IMAGE_FILE}")
+            message(FATAL_ERROR
+                    "Gate model file not found: ${GATE_MODEL_IMAGE_FILE}\n"
+                    "Put your exported gate .espdl model at models/${CONFIG_SMART_MODEL_GATE_FILENAME}")
+        endif()
+        file(SIZE "${GATE_MODEL_IMAGE_FILE}" GATE_MODEL_IMAGE_SIZE)
+        if(GATE_MODEL_IMAGE_SIZE GREATER GATE_MODEL_PARTITION_MAX_BYTES)
+            message(FATAL_ERROR
+                    "Gate model file is too large for the premodel partition: ${GATE_MODEL_IMAGE_SIZE} bytes > ${GATE_MODEL_PARTITION_MAX_BYTES} bytes\n"
+                    "Shrink models/${CONFIG_SMART_MODEL_GATE_FILENAME} or increase the premodel partition in partitions.csv")
+        endif()
+
+        esptool_py_flash_to_partition(flash "premodel" "${GATE_MODEL_IMAGE_FILE}")
+    endif()
 endif()
