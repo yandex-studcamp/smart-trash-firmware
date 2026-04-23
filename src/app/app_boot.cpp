@@ -17,9 +17,6 @@
 #include "board/servo_control.hpp"
 #include "camera/camera.hpp"
 #include "inference/inference.h"
-#if CONFIG_SMART_SAMPLE_DUMP_ENABLE
-#include "app/sample_dump.hpp"
-#endif
 #if CONFIG_SMART_ENABLE_HTTP_DEBUG_API
 #include "esp_netif.h"
 #include "network/http_server.hpp"
@@ -106,6 +103,10 @@ void run_servo_action_for_prediction(const inference_result_t &result)
     vTaskDelay(pdMS_TO_TICKS(board::kServoActionHoldMs));
     (void)smart_bin::servo_set_safe();
     vTaskDelay(pdMS_TO_TICKS(board::kServoActionReturnDelayMs));
+    if (board::kServoInferenceDetachAtIdle) {
+        ESP_LOGI(kTag, "Detaching servos after inference action returned home");
+        (void)smart_bin::servo_detach_all();
+    }
 #else
     (void)result;
     ESP_LOGI(kTag, "Inference servo actions are disabled by Kconfig");
@@ -212,10 +213,6 @@ void run_boot_camera_inference()
              capture_ms);
     log_heap("after_capture");
 
-#if CONFIG_SMART_SAMPLE_DUMP_ENABLE
-    ESP_LOGW(kTag, "Sample dump is only supported for RGB888 boot capture; skipped in JPEG capture mode");
-#endif
-
     const int64_t infer_call_start_us = esp_timer_get_time();
     const bool readd_task_wdt = temporarily_remove_current_task_from_wdt();
 
@@ -243,13 +240,6 @@ void run_boot_camera_inference()
              static_cast<unsigned>(rgb_height),
              capture_ms);
     log_heap("after_capture");
-
-#if CONFIG_SMART_SAMPLE_DUMP_ENABLE
-    const esp_err_t sample_dump_ret = smart_bin::dump_rgb888_sample_to_log(rgb_data, rgb_width, rgb_height);
-    if (sample_dump_ret != ESP_OK) {
-        ESP_LOGE(kTag, "Sample dump failed: 0x%x", sample_dump_ret);
-    }
-#endif
 
     const int64_t infer_call_start_us = esp_timer_get_time();
     const bool readd_task_wdt = temporarily_remove_current_task_from_wdt();

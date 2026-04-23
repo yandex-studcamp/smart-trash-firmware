@@ -6,6 +6,7 @@
 
 #include "board/board_config.hpp"
 #include "board/board_pins.hpp"
+#include "board/board_profile.hpp"
 #include "driver/ledc.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
@@ -25,6 +26,10 @@ constexpr ledc_channel_t kServo1Channel = LEDC_CHANNEL_2;
 constexpr ledc_channel_t kServo2Channel = LEDC_CHANNEL_3;
 
 bool g_ready = false;
+uint16_t g_servo1_angle = board::kServoSafeAngleDeg;
+uint16_t g_servo2_angle = board::kServoSafeAngleDeg;
+bool g_servo1_angle_known = false;
+bool g_servo2_angle_known = false;
 
 uint16_t clamp_angle(uint16_t angle_deg)
 {
@@ -44,6 +49,16 @@ int gpio_for_servo(smart_bin::servo_id_t id)
 uint16_t home_angle_for_servo(smart_bin::servo_id_t id)
 {
     return (id == smart_bin::servo_id_t::kServo1) ? board::kServo1HomeAngleDeg : board::kServo2HomeAngleDeg;
+}
+
+uint16_t &stored_angle_for_servo(smart_bin::servo_id_t id)
+{
+    return (id == smart_bin::servo_id_t::kServo1) ? g_servo1_angle : g_servo2_angle;
+}
+
+bool &angle_known_for_servo(smart_bin::servo_id_t id)
+{
+    return (id == smart_bin::servo_id_t::kServo1) ? g_servo1_angle_known : g_servo2_angle_known;
 }
 
 uint32_t angle_to_pulse_us(uint16_t angle_deg)
@@ -67,6 +82,65 @@ esp_err_t set_servo_angle_raw(smart_bin::servo_id_t id, uint16_t angle_deg)
 
     ESP_RETURN_ON_ERROR(ledc_set_duty(kSpeedMode, channel, duty), kTag, "ledc_set_duty failed");
     ESP_RETURN_ON_ERROR(ledc_update_duty(kSpeedMode, channel), kTag, "ledc_update_duty failed");
+    return ESP_OK;
+}
+
+void log_servo_micro_step(smart_bin::servo_id_t id, uint16_t current_angle, uint16_t target_angle)
+{
+    if (!board::kBootProfileServoTest) {
+        return;
+    }
+
+    const uint32_t pulse_us = angle_to_pulse_us(current_angle);
+    const uint32_t duty = pulse_to_duty(pulse_us);
+    ESP_LOGI(kTag,
+             "servo=%u step gpio=%d channel=%d angle=%u target=%u pulse_us=%" PRIu32 " duty=%" PRIu32,
+             static_cast<unsigned>(id == smart_bin::servo_id_t::kServo1 ? 1 : 2),
+             gpio_for_servo(id),
+             static_cast<int>(channel_for_servo(id)),
+             static_cast<unsigned>(current_angle),
+             static_cast<unsigned>(target_angle),
+             pulse_us,
+             duty);
+}
+
+esp_err_t move_servo_smooth(smart_bin::servo_id_t id, uint16_t target_angle)
+{
+    uint16_t &current_angle = stored_angle_for_servo(id);
+    bool &angle_known = angle_known_for_servo(id);
+
+    if (!angle_known) {
+        ESP_RETURN_ON_ERROR(set_servo_angle_raw(id, target_angle), kTag, "Failed to set initial servo angle");
+        current_angle = target_angle;
+        angle_known = true;
+        log_servo_micro_step(id, current_angle, target_angle);
+        return ESP_OK;
+    }
+
+    const uint16_t step_deg = std::max<uint16_t>(1, board::kServoSlewStepDeg);
+    if (current_angle == target_angle || step_deg == 0) {
+        ESP_RETURN_ON_ERROR(set_servo_angle_raw(id, target_angle), kTag, "Failed to set servo angle");
+        current_angle = target_angle;
+        log_servo_micro_step(id, current_angle, target_angle);
+        return ESP_OK;
+    }
+
+    while (current_angle != target_angle) {
+        if (current_angle < target_angle) {
+            const uint16_t remaining = static_cast<uint16_t>(target_angle - current_angle);
+            current_angle = static_cast<uint16_t>(current_angle + std::min<uint16_t>(step_deg, remaining));
+        } else {
+            const uint16_t remaining = static_cast<uint16_t>(current_angle - target_angle);
+            current_angle = static_cast<uint16_t>(current_angle - std::min<uint16_t>(step_deg, remaining));
+        }
+
+        ESP_RETURN_ON_ERROR(set_servo_angle_raw(id, current_angle), kTag, "Failed to update servo micro-step");
+        log_servo_micro_step(id, current_angle, target_angle);
+        if (board::kServoSlewStepDelayMs > 0) {
+            vTaskDelay(pdMS_TO_TICKS(board::kServoSlewStepDelayMs));
+        }
+    }
+
     return ESP_OK;
 }
 
@@ -149,13 +223,15 @@ esp_err_t servo_set_angle(servo_id_t id, uint16_t degrees)
     }
 
     const uint16_t angle = clamp_angle(degrees);
-    ESP_RETURN_ON_ERROR(set_servo_angle_raw(id, angle), kTag, "Failed to set servo angle");
+    ESP_RETURN_ON_ERROR(move_servo_smooth(id, angle), kTag, "Failed to set servo angle");
     ESP_LOGI(kTag,
-             "servo=%u gpio=%d channel=%d angle=%u",
+             "servo=%u gpio=%d channel=%d angle=%u slew_step=%u step_delay_ms=%" PRIu32,
              static_cast<unsigned>(id == servo_id_t::kServo1 ? 1 : 2),
              gpio_for_servo(id),
              static_cast<int>(channel_for_servo(id)),
-             static_cast<unsigned>(angle));
+             static_cast<unsigned>(angle),
+             static_cast<unsigned>(board::kServoSlewStepDeg),
+             board::kServoSlewStepDelayMs);
     return ESP_OK;
 }
 
@@ -179,6 +255,18 @@ esp_err_t servo_detach(servo_id_t id)
         return ESP_ERR_INVALID_STATE;
     }
     return ledc_stop(kSpeedMode, channel_for_servo(id), 0);
+}
+
+esp_err_t servo_detach_all()
+{
+    if (!g_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_RETURN_ON_ERROR(servo_detach(servo_id_t::kServo1), kTag, "servo1 detach failed");
+    ESP_RETURN_ON_ERROR(servo_detach(servo_id_t::kServo2), kTag, "servo2 detach failed");
+    ESP_LOGI(kTag, "All servos detached");
+    return ESP_OK;
 }
 
 void servo_log_profile_config()
@@ -206,6 +294,14 @@ void servo_log_profile_config()
              board::kServoStepDelayMs,
              board::kServoActionHoldMs,
              board::kServoActionReturnDelayMs);
+    ESP_LOGI(kTag,
+             "slew: step_deg=%u step_delay_ms=%" PRIu32,
+             static_cast<unsigned>(board::kServoSlewStepDeg),
+             board::kServoSlewStepDelayMs);
+    ESP_LOGI(kTag,
+             "detach_at_idle: test=%s inference=%s",
+             board::kServoTestDetachAtIdle ? "on" : "off",
+             board::kServoInferenceDetachAtIdle ? "on" : "off");
 }
 
 esp_err_t servo_run_test_cycle(uint32_t cycle_index)

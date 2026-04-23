@@ -79,6 +79,22 @@ config SMART_SERVO_STEP_DELAY_MS
     range 100 10000
     default 900
 
+config SMART_SERVO_SLEW_STEP_DEG
+    int "Servo motion step size (deg)"
+    range 1 30
+    default 3
+    help
+        Smaller step = smoother and slower servo travel.
+        Each command is split into multiple micro-movements.
+
+config SMART_SERVO_SLEW_STEP_DELAY_MS
+    int "Delay between servo micro-steps (ms)"
+    range 0 200
+    default 20
+    help
+        Pause after each micro-step while moving to target angle.
+        Increase to slow the servo down further.
+
 config SMART_SERVO_SECONDARY_DELAY_MS
     int "Delay before servo #2 action after prediction (ms)"
     range 0 5000
@@ -93,6 +109,22 @@ config SMART_SERVO_ACTION_RETURN_DELAY_MS
     int "Delay between return-home servo commands (ms)"
     range 0 5000
     default 350
+
+config SMART_SERVO_TEST_DETACH_AT_IDLE
+    bool "Detach servos in smoke test when idle"
+    default n
+    help
+        If enabled, servos stop receiving PWM after reaching safe/home state
+        in the servo smoke test profile. This reduces holding jitter, but the
+        mechanism will no longer be held in place by servo torque.
+
+config SMART_SERVO_INFERENCE_DETACH_AT_IDLE
+    bool "Detach servos after inference action returns home"
+    default n
+    help
+        If enabled, servos stop receiving PWM after the inference action
+        sequence finishes and both servos return to safe/home state.
+        This reduces holding jitter in the main firmware flow.
 
 endmenu
 
@@ -217,20 +249,23 @@ config SMART_SAMPLE_DUMP_ENABLE
     bool "Dump captured boot samples to serial log for host-side saving"
     default n
     help
-        Debug-only option. When enabled, boot capture emits the RGB frame as
-        hex-encoded JPEG chunks to the serial log. A host script can save those
-        chunks into logs/samples as numbered artifacts. Keep disabled for
-        normal 4MB flash builds.
+        Debug-only option. When enabled, each inference emits three JPEG
+        artifacts to serial log as hex chunks:
+        1) raw_rgb    - camera RGB frame before model preprocess,
+        2) gate_input - exact gate model input tensor as image,
+        3) main_input - exact main model input tensor as image.
+        Host script tools/save_serial_samples.py extracts these chunks into
+        logs/samples with kind/inference_id in filenames.
+        Keep disabled for normal 4MB flash builds.
 
-config SMART_SAMPLE_DUMP_OUTPUT_SIDE
-    int "Sample dump output side (square, pixels)"
-    range 32 320
-    default 128
-    depends on SMART_SAMPLE_DUMP_ENABLE
+config SMART_INFERENCE_VERBOSE_LOGGING
+    bool "Verbose inference logging (tensor values + quant details)"
+    default n
     help
-        Captured frame is center-cropped to square and resized to this side.
-        Full-resolution RGB over UART is slow enough to trigger task watchdog
-        on ESP32-CAM.
+        Enables detailed inference logs for debugging.
+        Includes per-output tensor value dumps and, for presence premodel,
+        raw scalar output, dtype, exponent, quant scale, and dequantized value.
+        Keep disabled for normal runs because logs are very noisy.
 
 if SMART_ENABLE_HTTP_DEBUG_API
 

@@ -43,6 +43,12 @@
 #ifndef CONFIG_SMART_SERVO_STEP_DELAY_MS
 #define CONFIG_SMART_SERVO_STEP_DELAY_MS 900
 #endif
+#ifndef CONFIG_SMART_SERVO_SLEW_STEP_DEG
+#define CONFIG_SMART_SERVO_SLEW_STEP_DEG 3
+#endif
+#ifndef CONFIG_SMART_SERVO_SLEW_STEP_DELAY_MS
+#define CONFIG_SMART_SERVO_SLEW_STEP_DELAY_MS 20
+#endif
 #ifndef CONFIG_SMART_SERVO_SECONDARY_DELAY_MS
 #define CONFIG_SMART_SERVO_SECONDARY_DELAY_MS 300
 #endif
@@ -51,6 +57,12 @@
 #endif
 #ifndef CONFIG_SMART_SERVO_ACTION_RETURN_DELAY_MS
 #define CONFIG_SMART_SERVO_ACTION_RETURN_DELAY_MS 350
+#endif
+#ifndef CONFIG_SMART_SERVO_TEST_DETACH_AT_IDLE
+#define CONFIG_SMART_SERVO_TEST_DETACH_AT_IDLE 0
+#endif
+#ifndef CONFIG_SMART_SERVO_INFERENCE_DETACH_AT_IDLE
+#define CONFIG_SMART_SERVO_INFERENCE_DETACH_AT_IDLE 0
 #endif
 
 namespace smart_bin::board {
@@ -69,9 +81,13 @@ constexpr uint32_t kServoMinPulseUs = 500;
 constexpr uint32_t kServoMaxPulseUs = 2400;
 constexpr uint32_t kServoStartupSettleMs = CONFIG_SMART_SERVO_STARTUP_SETTLE_MS;
 constexpr uint32_t kServoStepDelayMs = CONFIG_SMART_SERVO_STEP_DELAY_MS;
+constexpr uint16_t kServoSlewStepDeg = CONFIG_SMART_SERVO_SLEW_STEP_DEG;
+constexpr uint32_t kServoSlewStepDelayMs = CONFIG_SMART_SERVO_SLEW_STEP_DELAY_MS;
 constexpr uint32_t kServoSecondaryDelayMs = CONFIG_SMART_SERVO_SECONDARY_DELAY_MS;
 constexpr uint32_t kServoActionHoldMs = CONFIG_SMART_SERVO_ACTION_HOLD_MS;
 constexpr uint32_t kServoActionReturnDelayMs = CONFIG_SMART_SERVO_ACTION_RETURN_DELAY_MS;
+constexpr bool kServoTestDetachAtIdle = CONFIG_SMART_SERVO_TEST_DETACH_AT_IDLE;
+constexpr bool kServoInferenceDetachAtIdle = CONFIG_SMART_SERVO_INFERENCE_DETACH_AT_IDLE;
 constexpr uint32_t kServoPwmFrequencyHz = 50;
 constexpr uint32_t kServoPwmPeriodUs = 20000;
 

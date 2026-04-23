@@ -207,9 +207,9 @@ SMART_INFERENCE_SERVO_ACTIONS=y
 ```text
 nvs       data  nvs      0x9000    0x6000
 phy_init  data  phy      0xf000    0x1000
-factory   app   factory  0x10000   0x260000
-model     data  0x82     0x270000  0x150000
-premodel  data  0x83     0x3c0000  0x040000
+factory   app   factory  0x10000   0x23e000
+model     data  0x82     0x24e000  0x180000
+premodel  data  0x83     0x3ce000  0x032000
 ```
 
 Смысл разделов:
@@ -221,8 +221,9 @@ premodel  data  0x83     0x3c0000  0x040000
 - `premodel`: gate/presence ESP-DL модель (для policy с premodel).
 
 Лимиты сейчас:
-- `model`: `0x150000` байт.
-- `premodel`: `0x040000` байт (256 KB, покрывает требование premodel <= 200 KB с запасом).
+- `factory`: `0x23e000` байт.
+- `model`: `0x180000` байт.
+- `premodel`: `0x032000` байт.
 
 Эти лимиты проверяются в `src/CMakeLists.txt`, чтобы сборка падала заранее, если модель(и) не помещаются.
 

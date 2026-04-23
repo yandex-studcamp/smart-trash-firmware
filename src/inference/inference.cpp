@@ -24,6 +24,10 @@
 #include "freertos/semphr.h"
 #include "sdkconfig.h"
 
+#if CONFIG_SMART_SAMPLE_DUMP_ENABLE
+#include "app/sample_dump.hpp"
+#endif
+
 #ifndef CONFIG_SMART_PRESENCE_MSE_THRESHOLD
 #define CONFIG_SMART_PRESENCE_MSE_THRESHOLD "0.008"
 #endif
@@ -52,6 +56,7 @@ enum class InputLayout {
 
 struct InferenceState {
     dl::Model *model = nullptr;
+    dl::TensorBase *input_tensor = nullptr;
     dl::image::ImagePreprocessor *preprocessor = nullptr;
     dl::TensorBase *output_tensor = nullptr;
     std::string output_name;
@@ -95,6 +100,46 @@ float get_presence_mse_threshold()
 float exp_to_scale(int exponent)
 {
     return std::ldexp(1.0f, exponent);
+}
+
+const char *active_prediction_policy_name()
+{
+#if CONFIG_SMART_PREDICTION_POLICY_LEGACY_3_CLASS
+    return "LEGACY_3_CLASS";
+#elif CONFIG_SMART_PREDICTION_POLICY_EXPLICIT_NOTHING_CLASS
+    return "EXPLICIT_NOTHING_CLASS";
+#elif CONFIG_SMART_PREDICTION_POLICY_CONFIDENCE_THRESHOLD
+    return "CONFIDENCE_THRESHOLD";
+#elif CONFIG_SMART_PREDICTION_POLICY_PRESENCE_PREMODEL
+    return "PRESENCE_PREMODEL";
+#else
+    return "UNKNOWN";
+#endif
+}
+
+void log_runtime_scenario_summary()
+{
+    ESP_LOGI(kTag,
+             "Runtime scenario: policy=%s main_partition=%s premodel_partition=%s premodel_enabled=%s class_count=%d "
+             "nothing_class_id=%d",
+             active_prediction_policy_name(),
+             kMainModelPartitionLabel,
+             kGateModelPartitionLabel,
+             g_state.gate_enabled ? "true" : "false",
+             g_state.class_count,
+             g_state.nothing_class_id);
+
+#if CONFIG_SMART_PREDICTION_POLICY_PRESENCE_PREMODEL
+    ESP_LOGI(kTag,
+             "Presence premodel params: mse_threshold=%.9f output_tensor=%s",
+             get_presence_mse_threshold(),
+             g_state.gate_output_name.empty() ? "<not-selected-yet>" : g_state.gate_output_name.c_str());
+#elif CONFIG_SMART_PREDICTION_POLICY_CONFIDENCE_THRESHOLD
+    ESP_LOGI(kTag,
+             "Confidence-threshold params: threshold=%d%% synthetic_nothing_id=%d",
+             CONFIG_SMART_CONFIDENCE_THRESHOLD_PERCENT,
+             g_state.nothing_class_id);
+#endif
 }
 
 esp_err_t configure_prediction_policy()
@@ -191,6 +236,7 @@ void clear_state(bool keep_mutex)
 
     g_state.output_tensor = nullptr;
     g_state.output_name.clear();
+    g_state.input_tensor = nullptr;
     g_state.gate_input_tensor = nullptr;
     g_state.gate_output_tensor = nullptr;
     g_state.gate_output_name.clear();
@@ -496,6 +542,137 @@ float read_output_value(dl::TensorBase *tensor, int index)
     }
 }
 
+void log_scalar_tensor_quant_details(const char *tag, dl::TensorBase *tensor, int index, float dequantized)
+{
+#if !CONFIG_SMART_INFERENCE_VERBOSE_LOGGING
+    (void)tag;
+    (void)tensor;
+    (void)index;
+    (void)dequantized;
+    return;
+#else
+    if (tag == nullptr || tensor == nullptr || index < 0 || index >= tensor->size) {
+        return;
+    }
+
+    const int exponent = (tensor->exponent.channel_size() > 0) ? tensor->exponent.get(0) : 0;
+    const float scale = (tensor->exponent.channel_size() > 0) ? exp_to_scale(exponent) : NAN;
+
+    switch (tensor->dtype) {
+    case dl::DATA_TYPE_INT8: {
+        const int raw = static_cast<int>(tensor->get_element_ptr<int8_t>()[index]);
+        ESP_LOGE(kTag,
+                 "%s scalar quant: dtype=%s index=%d raw=%d exponent=%d scale=%.12f dequant=%.10f",
+                 tag,
+                 dl::dtype_to_string(tensor->dtype),
+                 index,
+                 raw,
+                 exponent,
+                 scale,
+                 dequantized);
+        break;
+    }
+    case dl::DATA_TYPE_UINT8: {
+        const unsigned raw = static_cast<unsigned>(tensor->get_element_ptr<uint8_t>()[index]);
+        ESP_LOGE(kTag,
+                 "%s scalar quant: dtype=%s index=%d raw=%u exponent=%d scale=%.12f dequant=%.10f",
+                 tag,
+                 dl::dtype_to_string(tensor->dtype),
+                 index,
+                 raw,
+                 exponent,
+                 scale,
+                 dequantized);
+        break;
+    }
+    case dl::DATA_TYPE_INT16: {
+        const int raw = static_cast<int>(tensor->get_element_ptr<int16_t>()[index]);
+        ESP_LOGE(kTag,
+                 "%s scalar quant: dtype=%s index=%d raw=%d exponent=%d scale=%.12f dequant=%.10f",
+                 tag,
+                 dl::dtype_to_string(tensor->dtype),
+                 index,
+                 raw,
+                 exponent,
+                 scale,
+                 dequantized);
+        break;
+    }
+    case dl::DATA_TYPE_UINT16: {
+        const unsigned raw = static_cast<unsigned>(tensor->get_element_ptr<uint16_t>()[index]);
+        ESP_LOGE(kTag,
+                 "%s scalar quant: dtype=%s index=%d raw=%u exponent=%d scale=%.12f dequant=%.10f",
+                 tag,
+                 dl::dtype_to_string(tensor->dtype),
+                 index,
+                 raw,
+                 exponent,
+                 scale,
+                 dequantized);
+        break;
+    }
+    case dl::DATA_TYPE_INT32: {
+        const int raw = tensor->get_element_ptr<int32_t>()[index];
+        ESP_LOGE(kTag,
+                 "%s scalar quant: dtype=%s index=%d raw=%d exponent=%d scale=%.12f dequant=%.10f",
+                 tag,
+                 dl::dtype_to_string(tensor->dtype),
+                 index,
+                 raw,
+                 exponent,
+                 scale,
+                 dequantized);
+        break;
+    }
+    case dl::DATA_TYPE_UINT32: {
+        const unsigned raw = tensor->get_element_ptr<uint32_t>()[index];
+        ESP_LOGE(kTag,
+                 "%s scalar quant: dtype=%s index=%d raw=%u exponent=%d scale=%.12f dequant=%.10f",
+                 tag,
+                 dl::dtype_to_string(tensor->dtype),
+                 index,
+                 raw,
+                 exponent,
+                 scale,
+                 dequantized);
+        break;
+    }
+    case dl::DATA_TYPE_FLOAT: {
+        const float raw = tensor->get_element_ptr<float>()[index];
+        ESP_LOGE(kTag,
+                 "%s scalar quant: dtype=%s index=%d raw_float=%.10f dequant=%.10f",
+                 tag,
+                 dl::dtype_to_string(tensor->dtype),
+                 index,
+                 raw,
+                 dequantized);
+        break;
+    }
+    case dl::DATA_TYPE_DOUBLE: {
+        const double raw = tensor->get_element_ptr<double>()[index];
+        ESP_LOGE(kTag,
+                 "%s scalar quant: dtype=%s index=%d raw_double=%.10f dequant=%.10f",
+                 tag,
+                 dl::dtype_to_string(tensor->dtype),
+                 index,
+                 raw,
+                 dequantized);
+        break;
+    }
+    default:
+        ESP_LOGE(kTag,
+                 "%s scalar quant: dtype=%s index=%d exponent=%d scale=%.12f dequant=%.10f",
+                 tag,
+                 dl::dtype_to_string(tensor->dtype),
+                 index,
+                 exponent,
+                 scale,
+                 dequantized);
+        break;
+    }
+#endif
+}
+
 bool get_tensor_value_bounds(const dl::TensorBase *tensor, float *min_out, float *max_out)
 {
     if (tensor == nullptr || min_out == nullptr || max_out == nullptr) {
@@ -539,6 +716,10 @@ bool get_tensor_value_bounds(const dl::TensorBase *tensor, float *min_out, float
 
 void log_all_output_tensor_values(dl::Model *model)
 {
+#if !CONFIG_SMART_INFERENCE_VERBOSE_LOGGING
+    (void)model;
+    return;
+#else
     if (model == nullptr) {
         return;
     }
@@ -574,6 +755,7 @@ void log_all_output_tensor_values(dl::Model *model)
             }
         }
     }
+#endif
 }
 
 void normalize_scores(float *scores, int score_count)
@@ -665,7 +847,7 @@ void center_crop_resize_rgb888(const uint8_t *src,
     }
 }
 
-esp_err_t preprocess_gate_input_locked(const dl::image::img_t &input_img)
+esp_err_t preprocess_gate_input_locked(const dl::image::img_t &input_img, bool normalize_to_unit_range = true)
 {
     if (g_state.gate_input_tensor == nullptr) {
         return ESP_ERR_INVALID_STATE;
@@ -691,7 +873,7 @@ esp_err_t preprocess_gate_input_locked(const dl::image::img_t &input_img)
                               dst_w,
                               dst_h);
 
-    const float inv_std = 1.0f / 255.0f;
+    const float unit_scale = normalize_to_unit_range ? (1.0f / 255.0f) : 1.0f;
     const auto dtype = g_state.gate_input_tensor->dtype;
     const InputLayout layout = g_state.gate_input_layout;
 
@@ -710,9 +892,9 @@ esp_err_t preprocess_gate_input_locked(const dl::image::img_t &input_img)
             for (int y = 0; y < dst_h; ++y) {
                 for (int x = 0; x < dst_w; ++x) {
                     const uint8_t *src_px = resized_rgb.data() + ((y * dst_w + x) * 3);
-                    dst[(0 * hw) + (y * dst_w + x)] = static_cast<float>(src_px[0]) * inv_std;
-                    dst[(1 * hw) + (y * dst_w + x)] = static_cast<float>(src_px[1]) * inv_std;
-                    dst[(2 * hw) + (y * dst_w + x)] = static_cast<float>(src_px[2]) * inv_std;
+                    dst[(0 * hw) + (y * dst_w + x)] = static_cast<float>(src_px[0]) * unit_scale;
+                    dst[(1 * hw) + (y * dst_w + x)] = static_cast<float>(src_px[1]) * unit_scale;
+                    dst[(2 * hw) + (y * dst_w + x)] = static_cast<float>(src_px[2]) * unit_scale;
                 }
             }
         } else {
@@ -720,9 +902,9 @@ esp_err_t preprocess_gate_input_locked(const dl::image::img_t &input_img)
                 for (int x = 0; x < dst_w; ++x) {
                     const uint8_t *src_px = resized_rgb.data() + ((y * dst_w + x) * 3);
                     const int base = (y * dst_w + x) * 3;
-                    dst[base + 0] = static_cast<float>(src_px[0]) * inv_std;
-                    dst[base + 1] = static_cast<float>(src_px[1]) * inv_std;
-                    dst[base + 2] = static_cast<float>(src_px[2]) * inv_std;
+                    dst[base + 0] = static_cast<float>(src_px[0]) * unit_scale;
+                    dst[base + 1] = static_cast<float>(src_px[1]) * unit_scale;
+                    dst[base + 2] = static_cast<float>(src_px[2]) * unit_scale;
                 }
             }
         }
@@ -747,12 +929,12 @@ esp_err_t preprocess_gate_input_locked(const dl::image::img_t &input_img)
         const int hw = dst_h * dst_w;
         for (int y = 0; y < dst_h; ++y) {
             for (int x = 0; x < dst_w; ++x) {
-                const uint8_t *src_px = resized_rgb.data() + ((y * dst_w + x) * 3);
-                for (int c = 0; c < 3; ++c) {
-                    const float normalized = static_cast<float>(src_px[c]) * inv_std;
-                    const int q = clamp_int(static_cast<int>(std::lround(normalized / scale)), INT8_MIN, INT8_MAX);
-                    if (layout == InputLayout::NCHW) {
-                        dst[(c * hw) + (y * dst_w + x)] = static_cast<int8_t>(q);
+                    const uint8_t *src_px = resized_rgb.data() + ((y * dst_w + x) * 3);
+                    for (int c = 0; c < 3; ++c) {
+                        const float normalized = static_cast<float>(src_px[c]) * unit_scale;
+                        const int q = clamp_int(static_cast<int>(std::lround(normalized / scale)), INT8_MIN, INT8_MAX);
+                        if (layout == InputLayout::NCHW) {
+                            dst[(c * hw) + (y * dst_w + x)] = static_cast<int8_t>(q);
                     } else {
                         dst[((y * dst_w + x) * 3) + c] = static_cast<int8_t>(q);
                     }
@@ -771,12 +953,12 @@ esp_err_t preprocess_gate_input_locked(const dl::image::img_t &input_img)
         const int hw = dst_h * dst_w;
         for (int y = 0; y < dst_h; ++y) {
             for (int x = 0; x < dst_w; ++x) {
-                const uint8_t *src_px = resized_rgb.data() + ((y * dst_w + x) * 3);
-                for (int c = 0; c < 3; ++c) {
-                    const float normalized = static_cast<float>(src_px[c]) * inv_std;
-                    const int q =
-                        clamp_int(static_cast<int>(std::lround(normalized / scale)), INT16_MIN, INT16_MAX);
-                    if (layout == InputLayout::NCHW) {
+                    const uint8_t *src_px = resized_rgb.data() + ((y * dst_w + x) * 3);
+                    for (int c = 0; c < 3; ++c) {
+                        const float normalized = static_cast<float>(src_px[c]) * unit_scale;
+                        const int q =
+                            clamp_int(static_cast<int>(std::lround(normalized / scale)), INT16_MIN, INT16_MAX);
+                        if (layout == InputLayout::NCHW) {
                         dst[(c * hw) + (y * dst_w + x)] = static_cast<int16_t>(q);
                     } else {
                         dst[((y * dst_w + x) * 3) + c] = static_cast<int16_t>(q);
@@ -790,11 +972,139 @@ esp_err_t preprocess_gate_input_locked(const dl::image::img_t &input_img)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+bool read_scalar_raw_value(dl::TensorBase *tensor, int index, int32_t *raw_out)
+{
+    if (tensor == nullptr || raw_out == nullptr || index < 0 || index >= tensor->size) {
+        return false;
+    }
+
+    switch (tensor->dtype) {
+    case dl::DATA_TYPE_INT8:
+        *raw_out = static_cast<int32_t>(tensor->get_element_ptr<int8_t>()[index]);
+        return true;
+    case dl::DATA_TYPE_UINT8:
+        *raw_out = static_cast<int32_t>(tensor->get_element_ptr<uint8_t>()[index]);
+        return true;
+    case dl::DATA_TYPE_INT16:
+        *raw_out = static_cast<int32_t>(tensor->get_element_ptr<int16_t>()[index]);
+        return true;
+    case dl::DATA_TYPE_UINT16:
+        *raw_out = static_cast<int32_t>(tensor->get_element_ptr<uint16_t>()[index]);
+        return true;
+    case dl::DATA_TYPE_INT32:
+        *raw_out = tensor->get_element_ptr<int32_t>()[index];
+        return true;
+    case dl::DATA_TYPE_UINT32:
+        *raw_out = static_cast<int32_t>(tensor->get_element_ptr<uint32_t>()[index]);
+        return true;
+    default:
+        return false;
+    }
+}
+
+#if CONFIG_SMART_SAMPLE_DUMP_ENABLE
+float read_tensor_channel_value(dl::TensorBase *tensor, int index)
+{
+    if (tensor == nullptr) {
+        return NAN;
+    }
+
+    const int exp_idx = (tensor->exponent.channel_size() > 0) ? 0 : -1;
+    const float scale = (exp_idx >= 0) ? exp_to_scale(tensor->exponent.get(exp_idx)) : 1.0f;
+
+    switch (tensor->dtype) {
+    case dl::DATA_TYPE_FLOAT:
+        return tensor->get_element_ptr<float>()[index];
+    case dl::DATA_TYPE_DOUBLE:
+        return static_cast<float>(tensor->get_element_ptr<double>()[index]);
+    case dl::DATA_TYPE_INT8:
+        return dl::dequantize<int8_t, float>(tensor->get_element_ptr<int8_t>()[index], scale);
+    case dl::DATA_TYPE_UINT8:
+        return static_cast<float>(tensor->get_element_ptr<uint8_t>()[index]) * scale;
+    case dl::DATA_TYPE_INT16:
+        return dl::dequantize<int16_t, float>(tensor->get_element_ptr<int16_t>()[index], scale);
+    case dl::DATA_TYPE_UINT16:
+        return static_cast<float>(tensor->get_element_ptr<uint16_t>()[index]) * scale;
+    case dl::DATA_TYPE_INT32:
+        return static_cast<float>(tensor->get_element_ptr<int32_t>()[index]) * scale;
+    case dl::DATA_TYPE_UINT32:
+        return static_cast<float>(tensor->get_element_ptr<uint32_t>()[index]) * scale;
+    default:
+        return NAN;
+    }
+}
+
+bool tensor_input_to_rgb888(dl::TensorBase *tensor,
+                            int width,
+                            int height,
+                            InputLayout layout,
+                            std::vector<uint8_t> *out_rgb)
+{
+    if (tensor == nullptr || out_rgb == nullptr || width <= 0 || height <= 0 ||
+        tensor->shape.size() != 4 || layout == InputLayout::UNKNOWN) {
+        return false;
+    }
+
+    out_rgb->assign(static_cast<size_t>(width) * static_cast<size_t>(height) * 3U, 0);
+    const int hw = width * height;
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            for (int c = 0; c < 3; ++c) {
+                int idx = 0;
+                if (layout == InputLayout::NCHW) {
+                    idx = (c * hw) + (y * width + x);
+                } else {
+                    idx = ((y * width + x) * 3) + c;
+                }
+
+                float normalized = read_tensor_channel_value(tensor, idx);
+                if (!std::isfinite(normalized)) {
+                    normalized = 0.0f;
+                }
+
+                // Model inputs are normalized to [0..1] in current pipeline.
+                int pixel = static_cast<int>(std::lround(normalized * 255.0f));
+                pixel = clamp_int(pixel, 0, 255);
+                (*out_rgb)[static_cast<size_t>((y * width + x) * 3 + c)] = static_cast<uint8_t>(pixel);
+            }
+        }
+    }
+
+    return true;
+}
+
+void dump_rgb_artifact(const char *kind,
+                       uint32_t inference_id,
+                       const uint8_t *rgb,
+                       int width,
+                       int height,
+                       int original_width,
+                       int original_height)
+{
+    if (rgb == nullptr || width <= 0 || height <= 0) {
+        return;
+    }
+
+    const esp_err_t ret = smart_bin::dump_rgb888_sample_with_meta_to_log(rgb,
+                                                                          static_cast<uint16_t>(width),
+                                                                          static_cast<uint16_t>(height),
+                                                                          kind,
+                                                                          inference_id,
+                                                                          static_cast<uint16_t>(original_width),
+                                                                          static_cast<uint16_t>(original_height));
+    if (ret != ESP_OK) {
+        ESP_LOGE(kTag, "Sample dump failed for kind=%s: 0x%x", kind ? kind : "unknown", ret);
+    }
+}
+#endif
+
 esp_err_t run_gate_premodel_locked(const dl::image::img_t &input_img,
                                    bool *object_present_out,
                                    float *mse_out,
                                    float *preprocess_ms_out,
-                                   float *infer_ms_out)
+                                   float *infer_ms_out,
+                                   uint32_t inference_id)
 {
     static bool s_threshold_range_warning_emitted = false;
 
@@ -816,7 +1126,7 @@ esp_err_t run_gate_premodel_locked(const dl::image::img_t &input_img,
     }
 
     const int64_t gate_preprocess_start_us = esp_timer_get_time();
-    ESP_RETURN_ON_ERROR(preprocess_gate_input_locked(input_img), kTag, "Gate preprocess failed");
+    ESP_RETURN_ON_ERROR(preprocess_gate_input_locked(input_img, true), kTag, "Gate preprocess failed");
     *preprocess_ms_out = static_cast<float>(esp_timer_get_time() - gate_preprocess_start_us) / 1000.0f;
 
     const int64_t gate_infer_start_us = esp_timer_get_time();
@@ -825,6 +1135,31 @@ esp_err_t run_gate_premodel_locked(const dl::image::img_t &input_img,
     log_all_output_tensor_values(g_state.gate_model);
 
     *mse_out = read_output_value(g_state.gate_output_tensor, 0);
+    int32_t primary_raw = 0;
+    bool primary_raw_ok = read_scalar_raw_value(g_state.gate_output_tensor, 0, &primary_raw);
+
+    if (g_state.gate_input_tensor != nullptr &&
+        g_state.gate_input_tensor->dtype == dl::DATA_TYPE_FLOAT &&
+        primary_raw_ok &&
+        primary_raw == 0) {
+        static bool s_zero_raw_warning_emitted = false;
+        if (!s_zero_raw_warning_emitted) {
+            const int exponent = (g_state.gate_output_tensor->exponent.channel_size() > 0)
+                                     ? g_state.gate_output_tensor->exponent.get(0)
+                                     : 0;
+            const float scale = exp_to_scale(exponent);
+            ESP_LOGW(kTag,
+                     "Gate output raw stays zero (FLOAT input path). "
+                     "Possible preprocessing mismatch vs training wrapper or strongly quantized gate head. "
+                     "Gate dtype=%s exponent=%d scale=%.12f",
+                     dl::dtype_to_string(g_state.gate_output_tensor->dtype),
+                     exponent,
+                     scale);
+            s_zero_raw_warning_emitted = true;
+        }
+    }
+
+    log_scalar_tensor_quant_details("Gate output", g_state.gate_output_tensor, 0, *mse_out);
     const float configured_threshold = get_presence_mse_threshold();
     float effective_threshold = configured_threshold;
 
@@ -864,11 +1199,40 @@ esp_err_t run_gate_premodel_locked(const dl::image::img_t &input_img,
 
     *object_present_out = object_present;
     ESP_LOGE(kTag,
-             "Presence premodel: mse=%.6f threshold=%.6f (configured=%.6f) object_present=%s",
+             "Presence premodel: mse=%.10f threshold=%.10f (configured=%.10f) object_present=%s",
              *mse_out,
              effective_threshold,
              configured_threshold,
              object_present ? "true" : "false");
+#if CONFIG_SMART_INFERENCE_VERBOSE_LOGGING
+    ESP_LOGE(kTag,
+             "Presence premodel detailed: mse=%.10f threshold=%.10f configured=%.10f object_present=%s",
+             *mse_out,
+             effective_threshold,
+             configured_threshold,
+             object_present ? "true" : "false");
+#endif
+
+#if CONFIG_SMART_SAMPLE_DUMP_ENABLE
+    std::vector<uint8_t> gate_rgb;
+    if (tensor_input_to_rgb888(g_state.gate_input_tensor,
+                               g_state.gate_input_width,
+                               g_state.gate_input_height,
+                               g_state.gate_input_layout,
+                               &gate_rgb)) {
+        dump_rgb_artifact("gate_input",
+                          inference_id,
+                          gate_rgb.data(),
+                          g_state.gate_input_width,
+                          g_state.gate_input_height,
+                          input_img.width,
+                          input_img.height);
+    } else {
+        ESP_LOGE(kTag, "Failed to convert gate input tensor to RGB dump");
+    }
+#else
+    (void)inference_id;
+#endif
     return ESP_OK;
 }
 
@@ -889,6 +1253,14 @@ esp_err_t run_rgb_locked(const uint8_t *rgb_data,
     input_img.height = height;
     input_img.pix_type = dl::image::DL_IMAGE_PIX_TYPE_RGB888;
 
+#if CONFIG_SMART_SAMPLE_DUMP_ENABLE
+    static uint32_t s_inference_dump_id = 0;
+    const uint32_t inference_dump_id = ++s_inference_dump_id;
+    dump_rgb_artifact("raw_rgb", inference_dump_id, rgb_data, width, height, width, height);
+#else
+    const uint32_t inference_dump_id = 0;
+#endif
+
     float preprocess_ms = 0.0f;
     float infer_ms = 0.0f;
 
@@ -898,7 +1270,7 @@ esp_err_t run_rgb_locked(const uint8_t *rgb_data,
     float gate_infer_ms = 0.0f;
 #if CONFIG_SMART_PREDICTION_POLICY_PRESENCE_PREMODEL
     ESP_RETURN_ON_ERROR(run_gate_premodel_locked(
-                            input_img, &gate_object_present, &gate_mse, &gate_preprocess_ms, &gate_infer_ms),
+                            input_img, &gate_object_present, &gate_mse, &gate_preprocess_ms, &gate_infer_ms, inference_dump_id),
                         kTag,
                         "Gate premodel inference failed");
     preprocess_ms += gate_preprocess_ms;
@@ -920,7 +1292,7 @@ esp_err_t run_rgb_locked(const uint8_t *rgb_data,
         out->total_ms = total_ms;
 
         ESP_LOGE(kTag,
-                 "Prediction via %s: class=%d label=%s nothing=true confidence=1.0000 gate_mse=%.6f",
+                 "Prediction via %s: class=%d label=%s nothing=true confidence=1.0000 gate_mse=%.10f",
                  g_state.gate_output_name.empty() ? "<gate>" : g_state.gate_output_name.c_str(),
                  out->predicted_class,
                  out->predicted_label,
@@ -932,6 +1304,25 @@ esp_err_t run_rgb_locked(const uint8_t *rgb_data,
     const int64_t preprocess_start_us = esp_timer_get_time();
     g_state.preprocessor->preprocess(input_img);
     preprocess_ms += static_cast<float>(esp_timer_get_time() - preprocess_start_us) / 1000.0f;
+
+#if CONFIG_SMART_SAMPLE_DUMP_ENABLE
+    std::vector<uint8_t> main_rgb;
+    if (tensor_input_to_rgb888(g_state.input_tensor,
+                               g_state.input_width,
+                               g_state.input_height,
+                               InputLayout::NHWC,
+                               &main_rgb)) {
+        dump_rgb_artifact("main_input",
+                          inference_dump_id,
+                          main_rgb.data(),
+                          g_state.input_width,
+                          g_state.input_height,
+                          width,
+                          height);
+    } else {
+        ESP_LOGE(kTag, "Failed to convert main input tensor to RGB dump");
+    }
+#endif
 
     const int64_t infer_start_us = esp_timer_get_time();
     g_state.model->run(dl::RUNTIME_MODE_SINGLE_CORE);
@@ -1046,6 +1437,7 @@ extern "C" esp_err_t inference_init(void)
     clear_state(true);
     g_state.initialized = true;
     ESP_RETURN_ON_ERROR(configure_prediction_policy(), kTag, "Prediction policy configuration failed");
+    log_runtime_scenario_summary();
 
     const esp_partition_t *model_partition =
         esp_partition_find_first(ESP_PARTITION_TYPE_DATA, static_cast<esp_partition_subtype_t>(0x82), kMainModelPartitionLabel);
@@ -1107,6 +1499,7 @@ extern "C" esp_err_t inference_init(void)
     }
 
     dl::TensorBase *input_tensor = inputs.begin()->second;
+    g_state.input_tensor = input_tensor;
     if (!is_tensor_shape_supported(input_tensor)) {
         ESP_LOGE(kTag,
                  "Unsupported model input shape. Expected [1,H,W,3], got: [%d,%d,%d,%d]",
@@ -1232,6 +1625,11 @@ extern "C" esp_err_t inference_init(void)
         g_state.gate_preprocessor = nullptr;
         ESP_LOGI(kTag, "Gate model uses manual preprocess path");
     }
+#else
+    ESP_LOGI(kTag,
+             "Premodel loading skipped: policy=%s uses only main model partition '%s'",
+             active_prediction_policy_name(),
+             kMainModelPartitionLabel);
 #endif
 
 #if CONFIG_SMART_INFERENCE_ENABLE_SELF_TEST

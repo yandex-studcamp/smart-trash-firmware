@@ -40,12 +40,24 @@ if(CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE AND CONFIG_SMART_ENABLE_HTTP_DEBU
     list(APPEND APP_SRC_FILES
         "network/http_server.cpp"
         "network/softap.cpp")
+    list(APPEND APP_REQUIRES
+        esp_event
+        esp_http_server
+        esp_netif
+        esp_wifi
+        nvs_flash)
 endif()
 
 if(CONFIG_SMART_BOOT_PROFILE_CAMERA_CAPTURE_SERVICE)
     list(APPEND APP_SRC_FILES
         "network/http_server_photo.cpp"
         "network/softap.cpp")
+    list(APPEND APP_REQUIRES
+        esp_event
+        esp_http_server
+        esp_netif
+        esp_wifi
+        nvs_flash)
 endif()
 
 idf_component_register(
@@ -57,7 +69,7 @@ target_compile_features(${COMPONENT_LIB} PRIVATE cxx_std_17)
 
 if(CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE AND CONFIG_SMART_FLASH_MODEL_WITH_APP)
     set(MODEL_IMAGE_FILE "${PROJECT_DIR}/models/${CONFIG_SMART_MODEL_PRIMARY_FILENAME}")
-    math(EXPR MODEL_PARTITION_MAX_BYTES "0x150000")
+    math(EXPR MODEL_PARTITION_MAX_BYTES "0x1b0000")
     if(NOT EXISTS "${MODEL_IMAGE_FILE}")
         message(FATAL_ERROR
                 "Model file not found: ${MODEL_IMAGE_FILE}\n"
@@ -74,7 +86,7 @@ if(CONFIG_SMART_BOOT_PROFILE_INFERENCE_SERVICE AND CONFIG_SMART_FLASH_MODEL_WITH
 
     if(CONFIG_SMART_PREDICTION_POLICY_PRESENCE_PREMODEL)
         set(GATE_MODEL_IMAGE_FILE "${PROJECT_DIR}/models/${CONFIG_SMART_MODEL_GATE_FILENAME}")
-        math(EXPR GATE_MODEL_PARTITION_MAX_BYTES "0x040000")
+        math(EXPR GATE_MODEL_PARTITION_MAX_BYTES "0x030000")
         if(NOT EXISTS "${GATE_MODEL_IMAGE_FILE}")
             message(FATAL_ERROR
                     "Gate model file not found: ${GATE_MODEL_IMAGE_FILE}\n"

@@ -26,6 +26,8 @@ BEGIN_RE = re.compile(
 )
 DATA_RE = re.compile(r"SAMPLE_DATA\s+(?P<hex>[0-9a-fA-F]+)")
 END_RE = re.compile(r"SAMPLE_END\s+id=(?P<id>\d+)")
+KIND_RE = re.compile(r"\bkind=(?P<kind>[A-Za-z0-9_-]+)")
+INFERENCE_ID_RE = re.compile(r"\binference_id=(?P<inference_id>\d+)")
 
 
 def decode_log_bytes(data: bytes) -> str:
@@ -54,18 +56,25 @@ def read_log_lines(path: Path) -> list[str]:
     return decode_log_bytes(path.read_bytes()).splitlines()
 
 
-def sample_path(out_dir: Path, sample_id: int, suffix: str) -> Path:
+def sample_path(out_dir: Path, sample_id: int, suffix: str, kind: str | None, inference_id: int | None) -> Path:
+    safe_kind = re.sub(r"[^A-Za-z0-9_-]+", "_", (kind or "").strip()).strip("_")
+    if inference_id is not None and safe_kind:
+        return out_dir / f"infer_{inference_id:06d}_{safe_kind}_{sample_id:04d}.{suffix}"
+    if safe_kind:
+        return out_dir / f"sample_{sample_id:04d}_{safe_kind}.{suffix}"
     return out_dir / f"sample_{sample_id:04d}.{suffix}"
 
 
 def next_sample_index(out_dir: Path) -> int:
     max_index = 0
-    for path in out_dir.glob("sample_*.*"):
+    for path in out_dir.glob("*.*"):
         stem = path.stem
-        parts = stem.split("_", 1)
-        if len(parts) != 2 or not parts[1].isdigit():
+        parts = stem.split("_")
+        if not parts:
             continue
-        max_index = max(max_index, int(parts[1]))
+        last = parts[-1]
+        if last.isdigit():
+            max_index = max(max_index, int(last))
     return max_index + 1
 
 
@@ -80,9 +89,17 @@ def sample_suffix(sample_format: str) -> str:
     return "bin"
 
 
-def save_sample(out_dir: Path, sample_index: int, suffix: str, payload: bytes, meta_line: str) -> None:
-    ppm_path = sample_path(out_dir, sample_index, suffix)
-    meta_path = sample_path(out_dir, sample_index, "log")
+def save_sample(
+    out_dir: Path,
+    sample_index: int,
+    suffix: str,
+    payload: bytes,
+    meta_line: str,
+    kind: str | None,
+    inference_id: int | None,
+) -> None:
+    ppm_path = sample_path(out_dir, sample_index, suffix, kind, inference_id)
+    meta_path = sample_path(out_dir, sample_index, "log", kind, inference_id)
     ppm_path.write_bytes(payload)
     meta_path.write_text(meta_line.rstrip() + "\n", encoding="utf-8")
     print(f"[sample-save] {ppm_path} ({len(payload)} bytes)", file=sys.stderr, flush=True)
@@ -93,6 +110,8 @@ def process_lines(lines: Iterable[str], out_dir: Path, mirror: bool) -> int:
 
     current_id: int | None = None
     current_format = "bin"
+    current_kind: str | None = None
+    current_inference_id: int | None = None
     expected_bytes = 0
     meta_line = ""
     chunks: list[str] = []
@@ -109,6 +128,10 @@ def process_lines(lines: Iterable[str], out_dir: Path, mirror: bool) -> int:
             current_id = int(begin.group("id"))
             current_format = begin.group("format")
             expected_bytes = int(begin.group("bytes"))
+            kind_match = KIND_RE.search(line)
+            current_kind = kind_match.group("kind") if kind_match else None
+            inference_match = INFERENCE_ID_RE.search(line)
+            current_inference_id = int(inference_match.group("inference_id")) if inference_match else None
             meta_line = line
             chunks = []
             continue
@@ -139,12 +162,22 @@ def process_lines(lines: Iterable[str], out_dir: Path, mirror: bool) -> int:
                         file=sys.stderr,
                         flush=True,
                     )
-                save_sample(out_dir, sample_index, sample_suffix(current_format), payload, meta_line)
+                save_sample(
+                    out_dir,
+                    sample_index,
+                    sample_suffix(current_format),
+                    payload,
+                    meta_line,
+                    current_kind,
+                    current_inference_id,
+                )
                 saved += 1
                 sample_index += 1
 
             current_id = None
             current_format = "bin"
+            current_kind = None
+            current_inference_id = None
             expected_bytes = 0
             meta_line = ""
             chunks = []

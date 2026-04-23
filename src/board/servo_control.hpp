@@ -17,8 +17,8 @@ esp_err_t servo_set_angle(servo_id_t id, uint16_t degrees);
 esp_err_t servo_set_home(servo_id_t id);
 esp_err_t servo_set_safe();
 esp_err_t servo_detach(servo_id_t id);
+esp_err_t servo_detach_all();
 esp_err_t servo_run_test_cycle(uint32_t cycle_index);
 void servo_log_profile_config();
 
 } // namespace smart_bin
-

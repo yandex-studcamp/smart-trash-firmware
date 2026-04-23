@@ -58,8 +58,10 @@ void run_servo_smoke_test()
     ESP_LOGI(kTag, "Servo smoke test finished after %u cycle(s)", static_cast<unsigned>(cycle));
     (void)servo_set_safe();
     vTaskDelay(pdMS_TO_TICKS(board::kServoActionReturnDelayMs));
-    (void)servo_detach(servo_id_t::kServo1);
-    (void)servo_detach(servo_id_t::kServo2);
+    if (board::kServoTestDetachAtIdle) {
+        ESP_LOGI(kTag, "Detaching servos at idle after smoke test");
+        (void)servo_detach_all();
+    }
 }
 
 } // namespace smart_bin
